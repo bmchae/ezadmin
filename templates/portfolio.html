@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}ezadmin - {{ pf.description if pf else '오류' }}{% endblock %}
+{% block content %}
+
+<a href="/" class="btn btn-sm btn-outline-secondary mb-3">&larr; 목록으로</a>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+{% if pf %}
+<h5 class="mb-1">{{ pf.description }}</h5>
+<p class="text-muted small">
+    <span class="badge badge-{{ pf.project }}">{{ pf.project }}</span>
+    <span class="badge badge-{{ pf.market }}">{{ pf.market | upper }}</span>
+    계좌: {{ pf.account_cfg.my_acct_stock }}-{{ pf.account_cfg.my_prod }}
+</p>
+
+{% if summary %}
+<div class="row g-3 mb-4">
+    <div class="col-sm-6 col-md-3">
+        <div class="card summary-card">
+            <div class="card-body py-2">
+                <div class="small text-muted">총 매수금액</div>
+                <div class="fw-bold">
+                    {% if currency == 'USD' %}
+                        ${{ "{:,.2f}".format(summary.get('총매수금액', 0)) }}
+                    {% else %}
+                        {{ "{:,.0f}".format(summary.get('총매수금액', 0)) }}원
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-md-3">
+        <div class="card summary-card">
+            <div class="card-body py-2">
+                <div class="small text-muted">총 평가금액</div>
+                <div class="fw-bold">
+                    {% if currency == 'USD' %}
+                        ${{ "{:,.2f}".format(summary.get('총평가금액', 0)) }}
+                    {% else %}
+                        {{ "{:,.0f}".format(summary.get('총평가금액', 0)) }}원
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-md-3">
+        <div class="card summary-card">
+            <div class="card-body py-2">
+                <div class="small text-muted">총 손익</div>
+                {% set pnl = summary.get('총손익금액', 0) %}
+                <div class="fw-bold {{ 'text-profit' if pnl > 0 else 'text-loss' if pnl < 0 else '' }}">
+                    {% if currency == 'USD' %}
+                        {{ "+" if pnl > 0 else "" }}${{ "{:,.2f}".format(pnl) }}
+                    {% else %}
+                        {{ "+" if pnl > 0 else "" }}{{ "{:,.0f}".format(pnl) }}원
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-md-3">
+        <div class="card summary-card">
+            <div class="card-body py-2">
+                <div class="small text-muted">총 수익률</div>
+                {% set rt = summary.get('총수익률', 0) %}
+                <div class="fw-bold {{ 'text-profit' if rt > 0 else 'text-loss' if rt < 0 else '' }}">
+                    {{ "+" if rt > 0 else "" }}{{ "{:.2f}".format(rt) }}%
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if summary.get('예수금') is not none and currency != 'USD' %}
+<p class="small text-muted">
+    예수금: {{ "{:,.0f}".format(summary.get('예수금', 0)) }}원
+    / D+2 예수금: {{ "{:,.0f}".format(summary.get('D+2예수금', 0)) }}원
+</p>
+{% endif %}
+{% endif %}
+
+{% if holdings %}
+<div class="table-responsive">
+<table class="table table-sm table-hover table-bordered align-middle">
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>종목코드</th>
+            <th>종목명</th>
+            <th class="text-end">보유수량</th>
+            <th class="text-end">매수평균가</th>
+            <th class="text-end">현재가</th>
+            <th class="text-end">매수금액</th>
+            <th class="text-end">평가금액</th>
+            <th class="text-end">손익</th>
+            <th class="text-end">수익률</th>
+            <th class="text-end">비중(%)</th>
+            <th class="text-end">비중차이(%)</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for h in holdings %}
+        <tr>
+            <td>{{ loop.index }}</td>
+            <td><code>{{ h['종목코드'] }}</code></td>
+            <td>{{ h['종목명'] }}</td>
+            <td class="text-end">
+                {% if currency == 'USD' %}
+                    {{ "{:,.4f}".format(h['보유수량']) if h['보유수량'] != h['보유수량']|int else "{:,.0f}".format(h['보유수량']) }}
+                {% else %}
+                    {{ "{:,.0f}".format(h['보유수량']) }}
+                {% endif %}
+            </td>
+            <td class="text-end">
+                {% if currency == 'USD' %}
+                    ${{ "{:,.2f}".format(h['매수평균가']) }}
+                {% else %}
+                    {{ "{:,.0f}".format(h['매수평균가']) }}
+                {% endif %}
+            </td>
+            <td class="text-end">
+                {% if currency == 'USD' %}
+                    ${{ "{:,.2f}".format(h['현재가']) }}
+                {% else %}
+                    {{ "{:,.0f}".format(h['현재가']) }}
+                {% endif %}
+            </td>
+            <td class="text-end">
+                {% if currency == 'USD' %}
+                    ${{ "{:,.2f}".format(h['매수금액']) }}
+                {% else %}
+                    {{ "{:,.0f}".format(h['매수금액']) }}
+                {% endif %}
+            </td>
+            <td class="text-end">
+                {% if currency == 'USD' %}
+                    ${{ "{:,.2f}".format(h['평가금액']) }}
+                {% else %}
+                    {{ "{:,.0f}".format(h['평가금액']) }}
+                {% endif %}
+            </td>
+            {% set pnl = h['손익금액'] %}
+            <td class="text-end {{ 'text-profit' if pnl > 0 else 'text-loss' if pnl < 0 else '' }}">
+                {% if currency == 'USD' %}
+                    {{ "+" if pnl > 0 else "" }}${{ "{:,.2f}".format(pnl) }}
+                {% else %}
+                    {{ "+" if pnl > 0 else "" }}{{ "{:,.0f}".format(pnl) }}
+                {% endif %}
+            </td>
+            {% set rt = h['수익률'] %}
+            <td class="text-end {{ 'text-profit' if rt > 0 else 'text-loss' if rt < 0 else '' }}">
+                {{ "+" if rt > 0 else "" }}{{ "{:.2f}".format(rt) }}%
+            </td>
+            <td class="text-end">{{ "{:.2f}".format(h.get('비중', 0)) }}</td>
+            {% set diff = h.get('비중차이', 0) %}
+            <td class="text-end {{ 'text-profit' if diff > 0 else 'text-loss' if diff < 0 else '' }}">
+                {{ "+" if diff > 0 else "" }}{{ "{:.2f}".format(diff) }}
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% elif not error %}
+<div class="alert alert-info">보유종목이 없습니다.</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}

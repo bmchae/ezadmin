@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}ezadmin - 포트폴리오 목록{% endblock %}
+{% block content %}
+<h4 class="mb-4">포트폴리오 목록</h4>
+
+{% for owner in owners %}
+<h5 class="mt-4 mb-3 border-bottom pb-2">{{ owner }}</h5>
+<div class="row g-3 mb-3">
+{% for pf in grouped[owner] %}
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <h6 class="card-title">{{ pf.description }}</h6>
+                <p class="card-text small text-muted mb-2">
+                    <span class="badge badge-{{ pf.project }}">{{ pf.project }}</span>
+                    <span class="badge badge-{{ pf.market }}">{{ pf.market | upper }}</span>
+                    <br>
+                    <span class="mt-1 d-inline-block">계좌: {{ pf.account_cfg.my_acct_stock }}-{{ pf.account_cfg.my_prod }}</span>
+                </p>
+                <a href="/portfolio/{{ pf.name }}" class="btn btn-sm btn-outline-dark">잔고 조회</a>
+            </div>
+        </div>
+    </div>
+{% endfor %}
+</div>
+{% endfor %}
+
+{% if not owners %}
+<div class="alert alert-warning">포트폴리오 설정 파일을 찾을 수 없습니다.</div>
+{% endif %}
+{% endblock %}
