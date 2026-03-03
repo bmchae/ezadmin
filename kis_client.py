@@ -174,6 +174,7 @@ def get_domestic_balance(acct_cfg, project_root, acct_config_name=""):
             qty = int(item.get("hldg_qty", 0))
             if qty == 0:
                 continue
+            day_chg = int(item.get("bfdy_cprs_icdc", 0))
             all_holdings.append({
                 "종목코드": item.get("pdno", ""),
                 "종목명": item.get("prdt_name", ""),
@@ -184,6 +185,8 @@ def get_domestic_balance(acct_cfg, project_root, acct_config_name=""):
                 "평가금액": int(item.get("evlu_amt", 0)),
                 "손익금액": int(item.get("evlu_pfls_amt", 0)),
                 "수익률": float(item.get("evlu_pfls_rt", 0)),
+                "당일손익금액": day_chg * qty,
+                "당일수익률": float(item.get("fltt_rt", 0)),
             })
 
         # 연속조회 확인

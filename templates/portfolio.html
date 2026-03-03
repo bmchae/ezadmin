@@ -97,6 +97,8 @@
             <th class="text-end">평가금액</th>
             <th class="text-end">손익</th>
             <th class="text-end">수익률</th>
+            <th class="text-end">당일손익</th>
+            <th class="text-end">당일등락률</th>
             <th class="text-end">비중(%)</th>
             <th class="text-end">비중차이(%)</th>
         </tr>
@@ -154,6 +156,23 @@
             <td class="text-end {{ 'text-profit' if rt > 0 else 'text-loss' if rt < 0 else '' }}">
                 {{ "+" if rt > 0 else "" }}{{ "{:.2f}".format(rt) }}%
             </td>
+            {% if h.get('당일손익금액') is not none %}
+                {% set dpnl = h['당일손익금액'] %}
+                <td class="text-end {{ 'text-profit' if dpnl > 0 else 'text-loss' if dpnl < 0 else '' }}">
+                    {% if currency == 'USD' %}
+                        {{ "+" if dpnl > 0 else "" }}${{ "{:,.2f}".format(dpnl) }}
+                    {% else %}
+                        {{ "+" if dpnl > 0 else "" }}{{ "{:,.0f}".format(dpnl) }}
+                    {% endif %}
+                </td>
+                {% set drt = h['당일수익률'] %}
+                <td class="text-end {{ 'text-profit' if drt > 0 else 'text-loss' if drt < 0 else '' }}">
+                    {{ "+" if drt > 0 else "" }}{{ "{:.2f}".format(drt) }}%
+                </td>
+            {% else %}
+                <td class="text-end text-muted">-</td>
+                <td class="text-end text-muted">-</td>
+            {% endif %}
             <td class="text-end">{{ "{:.2f}".format(h.get('비중', 0)) }}</td>
             {% set diff = h.get('비중차이', 0) %}
             <td class="text-end {{ 'text-profit' if diff > 0 else 'text-loss' if diff < 0 else '' }}">
