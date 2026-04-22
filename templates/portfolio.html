@@ -17,6 +17,28 @@
 </p>
 
 {% if summary %}
+{% if currency != 'USD' and summary.get('D+2예수금') is not none %}
+{% set cash = summary.get('D+2예수금', 0) %}
+{% set total_assets = summary.get('총평가금액', 0) + cash %}
+<div class="row g-3 mb-2">
+    <div class="col-sm-6 col-md-6">
+        <div class="card summary-card" style="border-left-color: #0d6efd;">
+            <div class="card-body py-2">
+                <div class="small text-muted">총자산 (평가금액 + 현금)</div>
+                <div class="fw-bold fs-5">{{ "{:,.0f}".format(total_assets) }}원</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-md-6">
+        <div class="card summary-card" style="border-left-color: #198754;">
+            <div class="card-body py-2">
+                <div class="small text-muted">현금 (D+2 예수금)</div>
+                <div class="fw-bold fs-5">{{ "{:,.0f}".format(cash) }}원</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 <div class="row g-3 mb-4">
     <div class="col-sm-6 col-md-3">
         <div class="card summary-card">
@@ -74,12 +96,105 @@
     </div>
 </div>
 
-{% if summary.get('예수금') is not none and currency != 'USD' %}
-<p class="small text-muted">
-    예수금: {{ "{:,.0f}".format(summary.get('예수금', 0)) }}원
-    / D+2 예수금: {{ "{:,.0f}".format(summary.get('D+2예수금', 0)) }}원
-</p>
+{% if currency == 'USD' and summary.get('원화총평가금액') %}
+<div class="row g-3 mb-2">
+    <div class="col-12">
+        <small class="text-muted">원화 환산 (환율: {{ "{:,.2f}".format(summary.get('환율', 0)) }}원)</small>
+    </div>
+    <div class="col-sm-6 col-md-3">
+        <div class="card summary-card" style="border-left-color: #6c757d;">
+            <div class="card-body py-2">
+                <div class="small text-muted">원화 매수금액</div>
+                <div class="fw-bold">{{ "{:,.0f}".format(summary.get('원화총매수금액', 0)) }}원</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-md-3">
+        <div class="card summary-card" style="border-left-color: #6c757d;">
+            <div class="card-body py-2">
+                <div class="small text-muted">원화 평가금액</div>
+                <div class="fw-bold">{{ "{:,.0f}".format(summary.get('원화총평가금액', 0)) }}원</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-md-3">
+        <div class="card summary-card" style="border-left-color: #6c757d;">
+            <div class="card-body py-2">
+                <div class="small text-muted">원화 손익</div>
+                {% set krw_pnl = summary.get('원화총손익금액', 0) %}
+                <div class="fw-bold {{ 'text-profit' if krw_pnl > 0 else 'text-loss' if krw_pnl < 0 else '' }}">
+                    {{ "+" if krw_pnl > 0 else "" }}{{ "{:,.0f}".format(krw_pnl) }}원
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-md-3">
+        <div class="card summary-card" style="border-left-color: #6c757d;">
+            <div class="card-body py-2">
+                <div class="small text-muted">원화 수익률</div>
+                {% set krw_rt = summary.get('원화총수익률', 0) %}
+                <div class="fw-bold {{ 'text-profit' if krw_rt > 0 else 'text-loss' if krw_rt < 0 else '' }}">
+                    {{ "+" if krw_rt > 0 else "" }}{{ "{:.2f}".format(krw_rt) }}%
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 {% endif %}
+
+{% endif %}
+
+{% if pending_orders %}
+<div class="mb-3">
+    <h6 class="mb-2">미체결 매도 주문 ({{ pending_orders|length }}건)</h6>
+    <div class="table-responsive">
+    <table class="table table-sm table-hover table-bordered align-middle mb-0">
+        <thead class="table-light">
+            <tr>
+                <th>#</th>
+                <th>종목코드</th>
+                <th>종목명</th>
+                <th>주문번호</th>
+                <th class="text-end">주문단가</th>
+                <th class="text-end">주문수량</th>
+                <th class="text-end">주문금액</th>
+                <th class="text-center">취소</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for code, po in pending_orders.items() %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td><code>{{ code }}</code></td>
+                <td>{{ po['종목명'] }}</td>
+                <td><code>{{ po['주문번호'] }}</code></td>
+                <td class="text-end">
+                    {% if currency == 'USD' %}
+                        ${{ "{:,.2f}".format(po['주문단가']) }}
+                    {% else %}
+                        {{ "{:,.0f}".format(po['주문단가']) }}
+                    {% endif %}
+                </td>
+                <td class="text-end">{{ "{:,}".format(po['주문수량']) }}</td>
+                <td class="text-end">
+                    {% if currency == 'USD' %}
+                        ${{ "{:,.2f}".format(po['주문단가'] * po['주문수량']) }}
+                    {% else %}
+                        {{ "{:,.0f}".format(po['주문단가'] * po['주문수량']) }}
+                    {% endif %}
+                </td>
+                <td class="text-center">
+                    <button class="btn btn-outline-danger btn-sm py-0 px-2"
+                            onclick="cancelOrder('{{ code }}', '{{ po['종목명'] }}', '{{ po['주문번호'] }}', {{ po['주문수량'] }}, {{ po['주문단가'] }}, '{{ po.get('거래소코드', '') }}', '{{ po.get('krx_fwdg_ord_orgno', '') }}', this)">
+                        주문취소
+                    </button>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
 {% endif %}
 
 {% if holdings %}
@@ -101,6 +216,13 @@
             <th class="text-end">당일등락률</th>
             <th class="text-end">비중(%)</th>
             <th class="text-end">비중차이(%)</th>
+            <th class="text-center">
+                <div class="d-flex gap-1 justify-content-center">
+                    <button class="btn btn-warning btn-sm py-0 px-1" onclick="sellAll(50)">매도50%</button>
+                    <button class="btn btn-secondary btn-sm py-0 px-1" onclick="sellAll(90)">매도90%</button>
+                    <button class="btn btn-danger btn-sm py-0 px-1" onclick="sellAll(100)">매도100%</button>
+                </div>
+            </th>
         </tr>
     </thead>
     <tbody>
@@ -175,8 +297,37 @@
             {% endif %}
             <td class="text-end">{{ "{:.2f}".format(h.get('비중', 0)) }}</td>
             {% set diff = h.get('비중차이', 0) %}
-            <td class="text-end {{ 'text-profit' if diff > 0 else 'text-loss' if diff < 0 else '' }}">
+            <td class="text-end">
                 {{ "+" if diff > 0 else "" }}{{ "{:.2f}".format(diff) }}
+            </td>
+            <td class="text-center">
+                {% set po = pending_orders.get(h['종목코드']) %}
+                {% if po %}
+                    {% if currency == 'USD' %}
+                        {% set price_str = "{:.2f}".format(po['주문단가']) %}
+                    {% else %}
+                        {% set price_str = "{:,}".format(po['주문단가']) %}
+                    {% endif %}
+                    <button class="btn btn-outline-secondary btn-sm py-0 px-1"
+                            onclick="cancelOrder('{{ h['종목코드'] }}', '{{ h['종목명'] }}', '{{ po['주문번호'] }}', {{ po['주문수량'] }}, {{ po['주문단가'] }}, '{{ h.get('거래소코드', '') }}', '{{ po.get('krx_fwdg_ord_orgno', '') }}', this)">
+                        매도 / {{ price_str }} / {{ po['주문수량'] }}
+                    </button>
+                {% else %}
+                    <div class="d-flex gap-1 justify-content-center">
+                        <button class="btn btn-warning btn-sm py-0 px-1"
+                                onclick="quickSell('{{ h['종목코드'] }}', '{{ h['종목명'] }}', {{ h['보유수량']|int }}, '{{ h.get('거래소코드', '') }}', 50, this)">
+                            매도50%
+                        </button>
+                        <button class="btn btn-secondary btn-sm py-0 px-1"
+                                onclick="quickSell('{{ h['종목코드'] }}', '{{ h['종목명'] }}', {{ h['보유수량']|int }}, '{{ h.get('거래소코드', '') }}', 90, this)">
+                            매도90%
+                        </button>
+                        <button class="btn btn-danger btn-sm py-0 px-1"
+                                onclick="quickSell('{{ h['종목코드'] }}', '{{ h['종목명'] }}', {{ h['보유수량']|int }}, '{{ h.get('거래소코드', '') }}', 100, this)">
+                            매도100%
+                        </button>
+                    </div>
+                {% endif %}
             </td>
         </tr>
     {% endfor %}
@@ -185,6 +336,135 @@
 </div>
 {% elif not error %}
 <div class="alert alert-info">보유종목이 없습니다.</div>
+{% endif %}
+
+{% if pf %}
+<script>
+const pfName = {{ pf.name | tojson }};
+const isUsd = {{ 'true' if currency == 'USD' else 'false' }};
+
+// 미체결 없는 종목 목록 (헤더 일괄 매도용)
+const availableHoldings = [
+{% for h in holdings %}{% if not pending_orders.get(h['종목코드']) %}
+    {code: {{ h['종목코드'] | tojson }}, name: {{ h['종목명'] | tojson }}, qty: {{ h['보유수량']|int }}, excgCd: {{ h.get('거래소코드', '') | tojson }}},
+{% endif %}{% endfor %}
+];
+
+async function sellAll(percent) {
+    const toSell = availableHoldings.filter(h => Math.floor(h.qty * percent / 100) > 0);
+    if (toSell.length === 0) {
+        alert('매도 가능한 종목이 없습니다.');
+        return;
+    }
+    const lines = toSell.map(h => h.code + ' ' + h.name + '  →  ' + Math.floor(h.qty * percent / 100) + '주').join('\n');
+    if (!confirm(toSell.length + '개 종목 전체 매도' + percent + '%\n\n' + lines + '\n\n매도호가 조회 후 순차 주문하시겠습니까?')) {
+        return;
+    }
+    const ok = [], fail = [];
+    for (const h of toSell) {
+        const sellQty = Math.floor(h.qty * percent / 100);
+        try {
+            const ar = await fetch('/portfolio/' + pfName + '/askprice?' + new URLSearchParams({code: h.code, excg_cd: h.excgCd})).then(r => r.json());
+            if (!ar.ok) throw new Error(ar.error);
+            const or = await fetch('/portfolio/' + pfName + '/sell', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({code: h.code, price: ar.price, qty: sellQty, excg_cd: h.excgCd})
+            }).then(r => r.json());
+            if (!or.ok) throw new Error(or.error);
+            ok.push(h.code + ' ' + sellQty + '주 (주문번호: ' + (or.order_no || '-') + ')');
+        } catch (e) {
+            fail.push(h.code + ': ' + e.message);
+        }
+    }
+    let msg = '';
+    if (ok.length) msg += '완료 ' + ok.length + '건:\n' + ok.join('\n');
+    if (fail.length) msg += (msg ? '\n\n' : '') + '실패 ' + fail.length + '건:\n' + fail.join('\n');
+    alert(msg || '완료');
+    location.reload();
+}
+
+function cancelOrder(code, name, orderNo, qty, price, excgCd, krxOrgno, btn) {
+    const priceStr = isUsd ? '$' + price.toFixed(2) : price.toLocaleString() + '원';
+    if (!confirm('[' + code + '] ' + name + '\n주문번호: ' + orderNo + '\n가격: ' + priceStr + ' / 수량: ' + qty + '주\n\n주문을 취소하시겠습니까?')) {
+        return;
+    }
+    btn.disabled = true;
+    btn.textContent = '취소중...';
+
+    fetch('/portfolio/' + pfName + '/cancel', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({code: code, order_no: orderNo, qty: qty, price: price, excg_cd: excgCd, krx_orgno: krxOrgno})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) {
+            alert('취소 완료! 취소주문번호: ' + (data.order_no || '-'));
+            location.reload();
+        } else {
+            alert('오류: ' + data.error);
+            btn.disabled = false;
+            btn.textContent = '매도 / ' + (isUsd ? price.toFixed(2) : price.toLocaleString()) + ' / ' + qty;
+        }
+    })
+    .catch(() => {
+        alert('네트워크 오류가 발생했습니다.');
+        btn.disabled = false;
+        btn.textContent = '매도 / ' + (isUsd ? price.toFixed(2) : price.toLocaleString()) + ' / ' + qty;
+    });
+}
+
+function quickSell(code, name, qty, excgCd, percent, btn) {
+    const sellQty = Math.floor(qty * percent / 100);
+    if (sellQty <= 0) {
+        alert('매도 가능 수량이 없습니다.');
+        return;
+    }
+
+    // 버튼 비활성화 (호가 조회 중)
+    const row = btn.closest('div');
+    row.querySelectorAll('button').forEach(b => { b.disabled = true; });
+    btn.textContent = '조회중...';
+
+    fetch('/portfolio/' + pfName + '/askprice?' + new URLSearchParams({code: code, excg_cd: excgCd || ''}))
+    .then(r => r.json())
+    .then(resp => {
+        row.querySelectorAll('button').forEach(b => { b.disabled = false; });
+        btn.textContent = percent === 50 ? '매도50%' : percent === 90 ? '매도90%' : '매도100%';
+
+        if (!resp.ok) {
+            alert('호가 조회 실패: ' + resp.error);
+            return;
+        }
+        const price = resp.price;
+        const priceStr = isUsd ? '$' + price.toFixed(2) : price.toLocaleString() + '원';
+        if (!confirm('[' + code + '] ' + name + '\n매도호가: ' + priceStr + '\n수량: ' + sellQty + '주 (' + percent + '%)\n\n매도 주문하시겠습니까?')) {
+            return;
+        }
+        fetch('/portfolio/' + pfName + '/sell', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({code: code, price: price, qty: sellQty, excg_cd: excgCd || ''})
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.ok) {
+                alert('주문 완료! 주문번호: ' + (data.order_no || '-'));
+                location.reload();
+            } else {
+                alert('오류: ' + data.error);
+            }
+        })
+        .catch(() => alert('네트워크 오류가 발생했습니다.'));
+    })
+    .catch(() => {
+        row.querySelectorAll('button').forEach(b => { b.disabled = false; });
+        btn.textContent = percent === 50 ? '매도50%' : percent === 90 ? '매도90%' : '매도100%';
+        alert('호가 조회 중 네트워크 오류가 발생했습니다.');
+    });
+}
+</script>
 {% endif %}
 
 {% endif %}

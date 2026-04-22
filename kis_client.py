@@ -229,32 +229,57 @@ def get_overseas_balance(acct_cfg, project_root, acct_config_name=""):
     headers = _make_headers(token, acct_cfg["my_app"], acct_cfg["my_sec"],
                             "CTRP6504R", acct_cfg.get("my_agent", ""))
 
-    params = {
-        "CANO": acct_no,
-        "ACNT_PRDT_CD": prod_cd,
-        "WCRC_FRCR_DVSN_CD": "02",  # 외화
-        "NATN_CD": "000",  # 전체
-        "TR_MKET_CD": "00",  # 전체
-        "INQR_DVSN_CD": "00",  # 전체
-    }
+    all_output1 = []
+    output2 = []
+    output3 = {}
+    fk200 = ""
+    nk200 = ""
 
-    res = requests.get(f"{base_url}/uapi/overseas-stock/v1/trading/inquire-present-balance",
-                       headers=headers, params=params)
-    if res.status_code != 200:
-        raise Exception(f"해외잔고조회 실패: {res.status_code} {res.text}")
+    for _ in range(20):
+        params = {
+            "CANO": acct_no,
+            "ACNT_PRDT_CD": prod_cd,
+            "WCRC_FRCR_DVSN_CD": "02",  # 외화
+            "NATN_CD": "000",  # 전체
+            "TR_MKET_CD": "00",  # 전체
+            "INQR_DVSN_CD": "00",  # 전체
+            "CTX_AREA_FK200": fk200,
+            "CTX_AREA_NK200": nk200,
+        }
 
-    data = res.json()
-    if data.get("rt_cd") != "0":
-        raise Exception(f"해외잔고조회 오류: {data.get('msg_cd')} {data.get('msg1')}")
+        res = requests.get(f"{base_url}/uapi/overseas-stock/v1/trading/inquire-present-balance",
+                           headers=headers, params=params)
+        if res.status_code != 200:
+            raise Exception(f"해외잔고조회 실패: {res.status_code} {res.text}")
 
-    output1 = data.get("output1", [])
-    output3 = data.get("output3", {})
+        data = res.json()
+        if data.get("rt_cd") != "0":
+            raise Exception(f"해외잔고조회 오류: {data.get('msg_cd')} {data.get('msg1')}")
+
+        page_output1 = data.get("output1", [])
+        all_output1.extend(page_output1)
+        output2 = data.get("output2", [])
+        output3 = data.get("output3", {})
+
+        tr_cont = res.headers.get("tr_cont", "")
+        if tr_cont in ("M", "F"):
+            fk200 = data.get("ctx_area_fk200", "") or data.get("CTX_AREA_FK200", "")
+            nk200 = data.get("ctx_area_nk200", "") or data.get("CTX_AREA_NK200", "")
+            headers["tr_cont"] = "N"
+            time.sleep(0.1)
+        else:
+            break
+
+    output1 = all_output1
 
     holdings = []
     for item in output1:
-        qty = float(item.get("cblc_qty13", 0))
+        # ord_psbl_qty1: 주문가능수량 (당일 매수분 포함)
+        # cblc_qty13: 결제기준잔고수량 (당일 매수분 미포함)
+        qty = float(item.get("ord_psbl_qty1", 0)) or float(item.get("cblc_qty13", 0))
         if qty == 0:
             continue
+        day_chg = float(item.get("bfdy_cprs_icdc", 0))
         holdings.append({
             "종목코드": item.get("pdno", ""),
             "종목명": item.get("prdt_name", ""),
@@ -265,16 +290,396 @@ def get_overseas_balance(acct_cfg, project_root, acct_config_name=""):
             "평가금액": float(item.get("frcr_evlu_amt2", 0)),
             "손익금액": float(item.get("evlu_pfls_amt2", 0)),
             "수익률": float(item.get("evlu_pfls_rt1", 0)),
+            "당일손익금액": day_chg * qty,
+            "당일수익률": float(item.get("fltt_rt", 0)),
+            "거래소코드": item.get("ovrs_excg_cd", ""),
         })
 
+    # 환율: output2의 frst_bltn_exrt 사용 (output3에 bass_exrt 없음)
+    exrt = 0.0
+    if isinstance(output2, list) and output2:
+        exrt = float(output2[0].get("frst_bltn_exrt", 0))
+
+    # output3에서 합계 추출 (올바른 필드명)
     summary = {}
     if output3:
-        s = output3 if isinstance(output3, dict) else output3
+        s = output3 if isinstance(output3, dict) else (output3[0] if output3 else {})
+        usd_pchs = float(s.get("pchs_amt_smtl", 0))
+        usd_evlu = float(s.get("evlu_amt_smtl", 0))
+        usd_pnl  = float(s.get("evlu_pfls_amt_smtl", 0))
+        usd_rt   = float(s.get("evlu_erng_rt1", 0))
+        krw_pchs = float(s.get("pchs_amt_smtl_amt", 0))
+        krw_evlu = float(s.get("evlu_amt_smtl_amt", 0))
+        krw_pnl  = float(s.get("tot_evlu_pfls_amt", 0))
+        if usd_evlu:
+            summary = {
+                "총매수금액": usd_pchs,
+                "총평가금액": usd_evlu,
+                "총손익금액": usd_pnl,
+                "총수익률": usd_rt,
+                "원화총매수금액": krw_pchs,
+                "원화총평가금액": krw_evlu,
+                "원화총손익금액": krw_pnl,
+                "원화총수익률": round(krw_pnl / krw_pchs * 100, 2) if krw_pchs else usd_rt,
+                "환율": exrt,
+            }
+
+    # output3 실패 시 holdings에서 직접 계산
+    if not summary.get("총평가금액") and holdings:
+        pchs = sum(h["매수금액"] for h in holdings)
+        evlu = sum(h["평가금액"] for h in holdings)
+        pnl  = sum(h["손익금액"] for h in holdings)
         summary = {
-            "총매수금액": float(s.get("frcr_pchs_amt1", 0)),
-            "총평가금액": float(s.get("tot_frcr_evlu_amt", 0)),
-            "총손익금액": float(s.get("ovrs_tot_pfls", 0)),
-            "총수익률": float(s.get("tot_evlu_pfls_rt", 0)) if s.get("tot_evlu_pfls_rt") else 0,
+            "총매수금액": pchs,
+            "총평가금액": evlu,
+            "총손익금액": pnl,
+            "총수익률": round(pnl / pchs * 100, 2) if pchs else 0,
+            "원화총매수금액": round(pchs * exrt) if exrt else 0,
+            "원화총평가금액": round(evlu * exrt) if exrt else 0,
+            "원화총손익금액": round(pnl  * exrt) if exrt else 0,
+            "원화총수익률": round(pnl / pchs * 100, 2) if pchs else 0,
+            "환율": exrt,
         }
 
     return holdings, summary
+
+
+def get_pending_sell_orders_overseas(acct_cfg, project_root, acct_config_name=""):
+    """
+    해외주식 미체결 매도 주문 조회.
+    Returns: {종목코드: {"주문수량": int, "주문단가": float}, ...}
+    """
+    try:
+        token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    except Exception as e:
+        print(f"[pending-overseas] token error: {e}")
+        return {}
+
+    acct_no = acct_cfg["my_acct_stock"]
+    prod_cd = acct_cfg["my_prod"]
+    svr = acct_cfg.get("server", "prod")
+    tr_id = "TTTS3018R" if svr == "prod" else "VTTS3018R"
+
+    headers = _make_headers(token, acct_cfg["my_app"], acct_cfg["my_sec"],
+                            tr_id, acct_cfg.get("my_agent", ""))
+    params = {
+        "CANO": acct_no,
+        "ACNT_PRDT_CD": prod_cd,
+        "OVRS_EXCG_CD": "%",
+        "SORT_SQN": "DS",
+        "CTX_AREA_FK200": "",
+        "CTX_AREA_NK200": "",
+    }
+
+    try:
+        res = requests.get(
+            f"{base_url}/uapi/overseas-stock/v1/trading/inquire-nccs",
+            headers=headers, params=params)
+        if res.status_code != 200:
+            print(f"[pending-overseas] http {res.status_code}: {res.text[:200]}")
+            return {}
+        data = res.json()
+        if data.get("rt_cd") != "0":
+            print(f"[pending-overseas] rt_cd={data.get('rt_cd')} msg={data.get('msg1')}")
+            return {}
+    except Exception as e:
+        print(f"[pending-overseas] request error: {e}")
+        return {}
+
+    output = data.get("output", []) or []
+    print(f"[pending-overseas] {acct_no}-{prod_cd} rows={len(output)}")
+
+    result = {}
+    for item in output:
+        code = item.get("pdno", "")
+        nccs_qty = int(float(item.get("nccs_qty", 0)))
+        if not code or nccs_qty == 0:
+            continue
+        if item.get("sll_buy_dvsn_cd") == "02":  # 02=매도 (해외)
+            if code not in result:
+                result[code] = {
+                    "주문수량": nccs_qty,
+                    "주문단가": float(item.get("ft_ord_unpr3", 0)),
+                    "주문번호": item.get("odno", ""),
+                    "거래소코드": item.get("ovrs_excg_cd", ""),
+                }
+    print(f"[pending-overseas] matched={len(result)} codes={list(result.keys())}")
+    return result
+
+
+def place_sell_order_overseas(acct_cfg, project_root, acct_config_name, stock_code, excg_cd, qty, price):
+    """
+    해외주식 지정가 매도 주문.
+    Returns: {"주문번호": str}
+    """
+    token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    acct_no = acct_cfg["my_acct_stock"]
+    prod_cd = acct_cfg["my_prod"]
+
+    svr = acct_cfg.get("server", "prod")
+    tr_id = "TTTT1006U" if svr == "prod" else "VTTT1006U"  # 매도: 1006, 매수: 1002
+
+    headers = _make_headers(token, acct_cfg["my_app"], acct_cfg["my_sec"],
+                            tr_id, acct_cfg.get("my_agent", ""))
+    body = {
+        "CANO": acct_no,
+        "ACNT_PRDT_CD": prod_cd,
+        "OVRS_EXCG_CD": excg_cd,
+        "PDNO": stock_code,
+        "ORD_DVSN": "00",           # 00=지정가
+        "ORD_QTY": str(int(qty)),
+        "OVRS_ORD_UNPR": f"{price:.2f}",
+        "ORD_SVR_DVSN_CD": "0",
+    }
+
+    res = requests.post(
+        f"{base_url}/uapi/overseas-stock/v1/trading/order",
+        data=json.dumps(body), headers=headers)
+    if res.status_code != 200:
+        raise Exception(f"주문 실패: {res.status_code} {res.text}")
+
+    data = res.json()
+    if data.get("rt_cd") != "0":
+        raise Exception(f"주문 오류: {data.get('msg_cd')} {data.get('msg1')}")
+
+    return {"주문번호": data.get("output", {}).get("ODNO", "")}
+
+
+def cancel_order(acct_cfg, project_root, acct_config_name, order_no, krx_orgno, stock_code, qty, price):
+    """
+    국내주식 주문 취소.
+    """
+    token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    acct_no = acct_cfg["my_acct_stock"]
+    prod_cd = acct_cfg["my_prod"]
+    svr = acct_cfg.get("server", "prod")
+    tr_id = "TTTC0803U" if svr == "prod" else "VTTC0803U"
+
+    headers = _make_headers(token, acct_cfg["my_app"], acct_cfg["my_sec"],
+                            tr_id, acct_cfg.get("my_agent", ""))
+    body = {
+        "CANO": acct_no,
+        "ACNT_PRDT_CD": prod_cd,
+        "KRX_FWDG_ORD_ORGNO": krx_orgno,
+        "ORGN_ODNO": order_no,
+        "ORD_DVSN": "00",
+        "RVSE_CNCL_DVSN_CD": "02",   # 02=취소
+        "ORD_QTY": str(qty),
+        "ORD_UNPR": "0",
+        "QTY_ALL_ORD_YN": "Y",
+    }
+    res = requests.post(
+        f"{base_url}/uapi/domestic-stock/v1/trading/order-rvsecncl",
+        data=json.dumps(body), headers=headers)
+    if res.status_code != 200:
+        raise Exception(f"주문취소 실패: {res.status_code} {res.text}")
+    data = res.json()
+    if data.get("rt_cd") != "0":
+        raise Exception(f"주문취소 오류: {data.get('msg_cd')} {data.get('msg1')}")
+    return {"주문번호": data.get("output", {}).get("ODNO", "")}
+
+
+def cancel_order_overseas(acct_cfg, project_root, acct_config_name, order_no, stock_code, excg_cd, qty, price):
+    """
+    해외주식 주문 취소.
+    """
+    token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    acct_no = acct_cfg["my_acct_stock"]
+    prod_cd = acct_cfg["my_prod"]
+    svr = acct_cfg.get("server", "prod")
+    tr_id = "TTTT1004U" if svr == "prod" else "VTTT1004U"
+
+    headers = _make_headers(token, acct_cfg["my_app"], acct_cfg["my_sec"],
+                            tr_id, acct_cfg.get("my_agent", ""))
+    body = {
+        "CANO": acct_no,
+        "ACNT_PRDT_CD": prod_cd,
+        "OVRS_EXCG_CD": excg_cd,
+        "PDNO": stock_code,
+        "ORGN_ODNO": order_no,
+        "RVSE_CNCL_DVSN_CD": "02",   # 02=취소
+        "ORD_QTY": str(int(qty)),
+        "OVRS_ORD_UNPR": f"{price:.2f}",
+        "QTY_ALL_ORD_YN": "Y",
+    }
+    res = requests.post(
+        f"{base_url}/uapi/overseas-stock/v1/trading/order-rvsecncl",
+        data=json.dumps(body), headers=headers)
+    if res.status_code != 200:
+        raise Exception(f"주문취소 실패: {res.status_code} {res.text}")
+    data = res.json()
+    if data.get("rt_cd") != "0":
+        raise Exception(f"주문취소 오류: {data.get('msg_cd')} {data.get('msg1')}")
+    return {"주문번호": data.get("output", {}).get("ODNO", "")}
+
+
+def get_pending_sell_orders(acct_cfg, project_root, acct_config_name=""):
+    """
+    국내주식 미체결 매도 주문 조회.
+    Returns: {종목코드: {"주문수량": int, "주문단가": int}, ...}
+    잔여수량(rmn_qty)이 0인 건은 제외한다.
+    """
+    try:
+        token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    except Exception as e:
+        print(f"[pending-domestic] token error: {e}")
+        return {}
+
+    acct_no = acct_cfg["my_acct_stock"]
+    prod_cd = acct_cfg["my_prod"]
+
+    headers = _make_headers(token, acct_cfg["my_app"], acct_cfg["my_sec"],
+                            "TTTC8036R", acct_cfg.get("my_agent", ""))
+    params = {
+        "CANO": acct_no,
+        "ACNT_PRDT_CD": prod_cd,
+        "CTX_AREA_FK100": "",
+        "CTX_AREA_NK100": "",
+        "INQR_DVSN_1": "1",   # 1=매도
+        "INQR_DVSN_2": "0",
+    }
+
+    try:
+        res = requests.get(
+            f"{base_url}/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl",
+            headers=headers, params=params)
+        if res.status_code != 200:
+            print(f"[pending-domestic] http {res.status_code}: {res.text[:200]}")
+            return {}
+        data = res.json()
+        if data.get("rt_cd") != "0":
+            print(f"[pending-domestic] rt_cd={data.get('rt_cd')} msg={data.get('msg1')}")
+            return {}
+    except Exception as e:
+        print(f"[pending-domestic] request error: {e}")
+        return {}
+
+    output = data.get("output", []) or []
+    print(f"[pending-domestic] {acct_no}-{prod_cd} rows={len(output)}")
+
+    result = {}
+    for item in output:
+        code = item.get("pdno", "")
+        rmn_qty = int(item.get("rmn_qty", 0) or 0)
+        sll_buy = item.get("sll_buy_dvsn_cd", "")
+        odno = item.get("odno", "") or item.get("ord_no", "")
+        if not code or rmn_qty == 0:
+            continue
+        if sll_buy == "01":  # 01=매도
+            if code not in result:
+                result[code] = {
+                    "주문수량": rmn_qty,
+                    "주문단가": int(float(item.get("ord_unpr", 0) or 0)),
+                    "주문번호": odno,
+                    "krx_fwdg_ord_orgno": item.get("krx_fwdg_ord_orgno", ""),
+                }
+    print(f"[pending-domestic] matched={len(result)} codes={list(result.keys())}")
+    return result
+
+
+def place_sell_order(acct_cfg, project_root, acct_config_name, stock_code, qty, price):
+    """
+    국내주식 지정가 매도 주문.
+    Returns: {"주문번호": str}
+    """
+    token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    acct_no = acct_cfg["my_acct_stock"]
+    prod_cd = acct_cfg["my_prod"]
+
+    svr = acct_cfg.get("server", "prod")
+    tr_id = "TTTC0801U" if svr == "prod" else "VTTC0801U"
+
+    headers = _make_headers(token, acct_cfg["my_app"], acct_cfg["my_sec"],
+                            tr_id, acct_cfg.get("my_agent", ""))
+    body = {
+        "CANO": acct_no,
+        "ACNT_PRDT_CD": prod_cd,
+        "PDNO": stock_code,
+        "ORD_DVSN": "00",        # 00=지정가
+        "ORD_QTY": str(qty),
+        "ORD_UNPR": str(price),
+    }
+
+    res = requests.post(
+        f"{base_url}/uapi/domestic-stock/v1/trading/order-cash",
+        data=json.dumps(body), headers=headers)
+    if res.status_code != 200:
+        raise Exception(f"주문 실패: {res.status_code} {res.text}")
+
+    data = res.json()
+    if data.get("rt_cd") != "0":
+        raise Exception(f"주문 오류: {data.get('msg_cd')} {data.get('msg1')}")
+
+    return {"주문번호": data.get("output", {}).get("ODNO", "")}
+
+
+def get_ask_price_domestic(acct_cfg, project_root, acct_config_name, stock_code):
+    """
+    국내주식 매도호가1 조회 (TR: FHKST01010200)
+    Returns: int (매도호가1, 원화)
+    """
+    token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    headers = _make_headers(token, acct_cfg["my_app"], acct_cfg["my_sec"],
+                            "FHKST01010200", acct_cfg.get("my_agent", ""))
+    params = {
+        "FID_COND_MRKT_DIV_CODE": "J",
+        "FID_INPUT_ISCD": stock_code,
+    }
+    res = requests.get(
+        f"{base_url}/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn",
+        headers=headers, params=params)
+    if res.status_code != 200:
+        raise Exception(f"호가 조회 실패: {res.status_code} {res.text}")
+    data = res.json()
+    if data.get("rt_cd") != "0":
+        raise Exception(f"호가 조회 오류: {data.get('msg_cd')} {data.get('msg1')}")
+    output = data.get("output1", {})
+    ask = int(output.get("askp1", 0))
+    if not ask:
+        raise Exception("매도호가 없음 (장 종료 또는 호가 없음)")
+    return ask
+
+
+_EXCG_CD_MAP = {
+    # CTRP6504R ovrs_excg_cd → HHDFS76200200 EXCD
+    "NASD": "NAS",
+    "NYSE": "NYS",
+    "AMEX": "AMS",
+    "SEHK": "HKS",
+    "SHAA": "SHS",
+    "SZAA": "SZS",
+    "TKSE": "TSE",
+    "HASE": "HSX",
+    "VNSE": "HNX",
+}
+
+
+def get_ask_price_overseas(acct_cfg, project_root, acct_config_name, stock_code, excg_cd):
+    """
+    해외주식 매도호가 조회 (TR: HHDFS76200200)
+    Returns: float (매도호가, USD)
+    """
+    token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    headers = _make_headers(token, acct_cfg["my_app"], acct_cfg["my_sec"],
+                            "HHDFS76200200", acct_cfg.get("my_agent", ""))
+    # 거래소코드 형식 변환 (NASD→NAS 등)
+    excd = _EXCG_CD_MAP.get(excg_cd.upper(), excg_cd)
+    params = {
+        "AUTH": "",
+        "EXCD": excd,
+        "SYMB": stock_code,
+    }
+    res = requests.get(
+        f"{base_url}/uapi/overseas-price/v1/quotations/price-detail",
+        headers=headers, params=params)
+    if res.status_code != 200:
+        raise Exception(f"호가 조회 실패: {res.status_code} {res.text}")
+    data = res.json()
+    if data.get("rt_cd") != "0":
+        raise Exception(f"호가 조회 오류: {data.get('msg_cd')} {data.get('msg1')}")
+    output = data.get("output", {})
+    # askp(매도호가) 없으면 last(현재가) 사용
+    ask = float(output.get("askp", 0)) or float(output.get("last", 0))
+    if not ask:
+        raise Exception(f"호가 없음 (excd={excd}, symb={stock_code})")
+    return ask
