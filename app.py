@@ -2,7 +2,10 @@
 ezadmin - Portfolio Dashboard
 ezgain/ezinvest의 포트폴리오 계좌별 보유종목/잔고를 조회하는 웹 대시보드
 """
+import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from flask import Flask, render_template, request, jsonify, make_response
 from config_loader import load_all_portfolios
 from kis_client import (get_domestic_balance, get_overseas_balance,
@@ -16,12 +19,64 @@ app = Flask(__name__)
 # 포트폴리오 목록 캐시 (앱 시작 시 로드)
 _portfolios = None
 
+# 포트폴리오 요약 캐시: name -> (timestamp, summary_dict). TTL 5분.
+_summary_cache = {}
+SUMMARY_TTL = 60
+
 
 def _get_portfolios():
     global _portfolios
     if _portfolios is None:
         _portfolios = load_all_portfolios()
     return _portfolios
+
+
+def _fetch_list_summary(pf):
+    """
+    포트폴리오 리스트 카드에 표시할 요약을 조회한다.
+    국내/해외 통화 통일 위해 해외는 원화 환산값을 사용한다.
+    Returns: {ok, 통화, 총자산, 현금, 매수금액, 평가금액, 손익, 수익률, error?}
+    """
+    try:
+        acct_name = pf.get("account_config_name", "")
+        if pf["market"] == "us":
+            _, summary = get_overseas_balance(pf["account_cfg"], pf["project_root"], acct_name)
+            pchs = summary.get("원화총매수금액", 0) or 0
+            evlu = summary.get("원화총평가금액", 0) or 0
+            pnl  = summary.get("원화총손익금액", 0) or 0
+            rt   = summary.get("원화총수익률", 0) or 0
+            cash = None  # 해외 잔고 API에 예수금 없음
+        else:
+            _, summary = get_domestic_balance(pf["account_cfg"], pf["project_root"], acct_name)
+            pchs = summary.get("총매수금액", 0) or 0
+            evlu = summary.get("총평가금액", 0) or 0
+            pnl  = summary.get("총손익금액", 0) or 0
+            rt   = summary.get("총수익률", 0) or 0
+            cash = summary.get("D+2예수금", 0) or 0
+        return {
+            "ok": True,
+            "통화": "KRW",
+            "총자산": evlu + (cash or 0),
+            "현금": cash,
+            "매수금액": pchs,
+            "평가금액": evlu,
+            "손익": pnl,
+            "수익률": rt,
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _get_cached_summary(pf):
+    name = pf["name"]
+    now = time.time()
+    entry = _summary_cache.get(name)
+    if entry and now - entry[0] < SUMMARY_TTL:
+        return entry[1]
+    result = _fetch_list_summary(pf)
+    if result.get("ok"):
+        _summary_cache[name] = (now, result)
+    return result
 
 
 @app.route("/")
@@ -32,10 +87,30 @@ def index():
     for pf in portfolios:
         owner = pf.get("owner", "unknown")
         grouped.setdefault(owner, []).append(pf)
-    # 정렬: 지정된 순서 우선, 나머지는 뒤에
     sorted_owners = [o for o in owners_order if o in grouped]
     sorted_owners += [o for o in grouped if o not in owners_order]
-    return render_template("index.html", grouped=grouped, owners=sorted_owners)
+
+    # 요약 병렬 조회 (TTL 캐시 적용)
+    summaries = {}
+    if portfolios:
+        workers = min(8, len(portfolios))
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = {ex.submit(_get_cached_summary, pf): pf["name"] for pf in portfolios}
+            for fut in as_completed(futures):
+                summaries[futures[fut]] = fut.result()
+
+    # 오너별 총자산 합계 (ok인 것만 합산)
+    owner_totals = {}
+    for owner, pfs in grouped.items():
+        total = 0
+        for pf in pfs:
+            s = summaries.get(pf["name"])
+            if s and s.get("ok"):
+                total += s.get("총자산", 0) or 0
+        owner_totals[owner] = total
+
+    return render_template("index.html", grouped=grouped, owners=sorted_owners,
+                           summaries=summaries, owner_totals=owner_totals)
 
 
 @app.route("/portfolio/<name>")
@@ -189,6 +264,7 @@ def get_askprice(name):
 def reload_config():
     global _portfolios
     _portfolios = None
+    _summary_cache.clear()
     _get_portfolios()
     return {"status": "ok", "count": len(_portfolios)}
 

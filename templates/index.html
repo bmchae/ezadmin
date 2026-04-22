@@ -18,23 +18,113 @@
         letter-spacing: -0.022em;
         font-weight: 600;
     }
+    .pf-summary { font-size: 13px; letter-spacing: -0.224px; }
+    .pf-summary .pf-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        padding: 3px 0;
+    }
+    .pf-summary .pf-row .label {
+        color: var(--apple-text-tertiary);
+        font-size: 12px;
+        letter-spacing: -0.12px;
+    }
+    .pf-summary .pf-row .value {
+        color: var(--apple-text);
+        font-variant-numeric: tabular-nums;
+        font-weight: 500;
+    }
+    .pf-summary .pf-row.pf-total .label {
+        font-size: 12px;
+        color: var(--apple-text-secondary);
+        font-weight: 600;
+    }
+    .pf-summary .pf-row.pf-total .value {
+        font-family: var(--apple-font-display);
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: -0.022em;
+    }
+    .pf-summary .pf-divider {
+        height: 1px;
+        background: var(--apple-divider);
+        margin: 6px 0;
+    }
+    .owner-total {
+        font-family: var(--apple-font-text);
+        font-size: 14px;
+        font-weight: 400;
+        letter-spacing: -0.224px;
+        color: var(--apple-text-tertiary);
+        margin-left: 6px;
+        font-variant-numeric: tabular-nums;
+    }
 </style>
 <h3 class="mb-4" style="letter-spacing: -0.022em;">포트폴리오 목록</h3>
 
 {% for owner in owners %}
-<h5 class="mt-4 mb-3 pb-2" style="border-bottom: 1px solid var(--apple-divider);">{{ owner }}</h5>
+<h5 class="mt-4 mb-3 pb-2" style="border-bottom: 1px solid var(--apple-divider);">
+    {{ owner }}
+    {% set total = owner_totals.get(owner, 0) %}
+    {% if total %}
+        <span class="owner-total">({{ "{:,.0f}".format(total) }}원)</span>
+    {% endif %}
+</h5>
 <div class="row g-3 mb-3">
 {% for pf in grouped[owner] %}
+    {% set s = summaries.get(pf.name) %}
     <div class="col-md-6 col-lg-4">
         <a href="/portfolio/{{ pf.name }}" class="card h-100 text-decoration-none text-reset portfolio-card">
             <div class="card-body">
-                <h6 class="card-title">{{ pf.description }}</h6>
-                <p class="card-text small text-muted mb-0">
+                <h6 class="card-title mb-2">{{ pf.description }}</h6>
+                <p class="card-text small text-muted mb-3">
                     <span class="badge badge-{{ pf.project }}">{{ pf.project }}</span>
                     <span class="badge badge-{{ pf.market }}">{{ pf.market | upper }}</span>
-                    <br>
-                    <span class="mt-1 d-inline-block">계좌: {{ pf.account_cfg.my_acct_stock }}-{{ pf.account_cfg.my_prod }}</span>
+                    <span class="ms-1">{{ pf.account_cfg.my_acct_stock }}-{{ pf.account_cfg.my_prod }}</span>
                 </p>
+
+                {% if s and s.ok %}
+                    <div class="pf-summary">
+                        <div class="pf-row pf-total">
+                            <span class="label">총자산</span>
+                            <span class="value">{{ "{:,.0f}".format(s['총자산']) }}원</span>
+                        </div>
+                        <div class="pf-row">
+                            <span class="label">현금</span>
+                            <span class="value">
+                                {% if s['현금'] is not none %}{{ "{:,.0f}".format(s['현금']) }}원{% else %}-{% endif %}
+                            </span>
+                        </div>
+                        <div class="pf-divider"></div>
+                        <div class="pf-row">
+                            <span class="label">매수금액</span>
+                            <span class="value">{{ "{:,.0f}".format(s['매수금액']) }}원</span>
+                        </div>
+                        <div class="pf-row">
+                            <span class="label">평가금액</span>
+                            <span class="value">{{ "{:,.0f}".format(s['평가금액']) }}원</span>
+                        </div>
+                        {% set pnl = s['손익'] %}
+                        <div class="pf-row">
+                            <span class="label">손익</span>
+                            <span class="value {{ 'text-profit' if pnl > 0 else 'text-loss' if pnl < 0 else '' }}">
+                                {{ "+" if pnl > 0 else "" }}{{ "{:,.0f}".format(pnl) }}원
+                            </span>
+                        </div>
+                        {% set rt = s['수익률'] %}
+                        <div class="pf-row">
+                            <span class="label">수익률</span>
+                            <span class="value {{ 'text-profit' if rt > 0 else 'text-loss' if rt < 0 else '' }}">
+                                {{ "+" if rt > 0 else "" }}{{ "{:.2f}".format(rt) }}%
+                            </span>
+                        </div>
+                    </div>
+                {% else %}
+                    <div class="small text-muted">
+                        {% if s and s.error %}조회 실패: {{ s.error }}{% else %}잔고 조회 불가{% endif %}
+                    </div>
+                {% endif %}
             </div>
         </a>
     </div>
