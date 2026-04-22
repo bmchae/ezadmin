@@ -1,25 +1,42 @@
 {% extends "base.html" %}
 {% block title %}ezadmin - 포트폴리오 목록{% endblock %}
 {% block content %}
-<h4 class="mb-4">포트폴리오 목록</h4>
+<style>
+    .portfolio-card {
+        cursor: pointer;
+        display: block;
+        transition: transform 0.18s ease, box-shadow 0.18s ease;
+    }
+    .portfolio-card:hover {
+        transform: translateY(-3px);
+        box-shadow: rgba(0, 0, 0, 0.30) 3px 8px 36px 0px;
+    }
+    .portfolio-card .card-title {
+        font-family: var(--apple-font-display);
+        font-size: 17px;
+        line-height: 1.24;
+        letter-spacing: -0.022em;
+        font-weight: 600;
+    }
+</style>
+<h3 class="mb-4" style="letter-spacing: -0.022em;">포트폴리오 목록</h3>
 
 {% for owner in owners %}
-<h5 class="mt-4 mb-3 border-bottom pb-2">{{ owner }}</h5>
+<h5 class="mt-4 mb-3 pb-2" style="border-bottom: 1px solid var(--apple-divider);">{{ owner }}</h5>
 <div class="row g-3 mb-3">
 {% for pf in grouped[owner] %}
     <div class="col-md-6 col-lg-4">
-        <div class="card h-100">
+        <a href="/portfolio/{{ pf.name }}" class="card h-100 text-decoration-none text-reset portfolio-card">
             <div class="card-body">
                 <h6 class="card-title">{{ pf.description }}</h6>
-                <p class="card-text small text-muted mb-2">
+                <p class="card-text small text-muted mb-0">
                     <span class="badge badge-{{ pf.project }}">{{ pf.project }}</span>
                     <span class="badge badge-{{ pf.market }}">{{ pf.market | upper }}</span>
                     <br>
                     <span class="mt-1 d-inline-block">계좌: {{ pf.account_cfg.my_acct_stock }}-{{ pf.account_cfg.my_prod }}</span>
                 </p>
-                <a href="/portfolio/{{ pf.name }}" class="btn btn-sm btn-outline-dark">잔고 조회</a>
             </div>
-        </div>
+        </a>
     </div>
 {% endfor %}
 </div>

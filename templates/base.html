@@ -6,17 +6,233 @@
     <title>{% block title %}ezadmin{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background-color: #f8f9fa; }
-        .navbar { background-color: #212529; }
-        .text-profit { color: #dc3545 !important; }
-        .text-loss { color: #0d6efd !important; }
-        .table th { background-color: #e9ecef; white-space: nowrap; }
-        .table td { white-space: nowrap; }
-        .badge-ezgain { background-color: #198754; }
-        .badge-ezinvest { background-color: #6f42c1; }
-        .badge-kr { background-color: #0d6efd; }
-        .badge-us { background-color: #fd7e14; }
-        .summary-card { border-left: 4px solid #212529; }
+        :root {
+            --apple-bg: #f5f5f7;
+            --apple-surface: #ffffff;
+            --apple-surface-alt: #fafafc;
+            --apple-text: #1d1d1f;
+            --apple-text-secondary: rgba(0, 0, 0, 0.8);
+            --apple-text-tertiary: rgba(0, 0, 0, 0.48);
+            --apple-blue: #0071e3;
+            --apple-link: #0066cc;
+            --apple-focus: #0071e3;
+            --apple-divider: rgba(0, 0, 0, 0.08);
+            --apple-divider-strong: rgba(0, 0, 0, 0.12);
+            --apple-card-shadow: rgba(0, 0, 0, 0.22) 3px 5px 30px 0px;
+            --apple-radius-sm: 5px;
+            --apple-radius-md: 8px;
+            --apple-radius-lg: 12px;
+            --apple-radius-pill: 980px;
+            --apple-font-display: "SF Pro Display", "SF Pro Text", "SF Pro Icons", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
+            --apple-font-text: "SF Pro Text", "SF Pro Icons", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
+        }
+
+        html, body {
+            background-color: var(--apple-bg);
+            color: var(--apple-text);
+            font-family: var(--apple-font-text);
+            font-size: 17px;
+            font-weight: 400;
+            line-height: 1.47;
+            letter-spacing: -0.374px;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        h1, h2, h3, h4, h5, h6 {
+            font-family: var(--apple-font-display);
+            color: var(--apple-text);
+            font-weight: 600;
+        }
+        h1 { font-size: 40px; line-height: 1.10; letter-spacing: -0.022em; }
+        h2 { font-size: 32px; line-height: 1.12; letter-spacing: -0.021em; }
+        h3 { font-size: 28px; line-height: 1.14; letter-spacing: 0.007em; font-weight: 400; }
+        h4 { font-size: 24px; line-height: 1.16; letter-spacing: -0.019em; }
+        h5 { font-size: 21px; line-height: 1.19; letter-spacing: 0.011em; font-weight: 600; }
+        h6 { font-size: 17px; line-height: 1.24; letter-spacing: -0.022em; font-weight: 600; }
+
+        a { color: var(--apple-link); text-decoration: none; }
+        a:hover { color: var(--apple-link); text-decoration: underline; }
+
+        /* Navigation — translucent dark glass */
+        .navbar {
+            background-color: rgba(0, 0, 0, 0.8) !important;
+            backdrop-filter: saturate(180%) blur(20px);
+            -webkit-backdrop-filter: saturate(180%) blur(20px);
+            min-height: 48px;
+            padding-top: 0;
+            padding-bottom: 0;
+        }
+        .navbar .navbar-brand {
+            font-family: var(--apple-font-display);
+            font-size: 17px;
+            font-weight: 600;
+            letter-spacing: -0.022em;
+            color: #fff;
+        }
+        .navbar .text-light {
+            font-size: 12px;
+            font-weight: 400;
+            letter-spacing: -0.12px;
+            color: rgba(255, 255, 255, 0.88) !important;
+        }
+
+        /* Cards — no border, soft diffused shadow */
+        .card {
+            background-color: var(--apple-surface);
+            border: none;
+            border-radius: var(--apple-radius-md);
+            box-shadow: var(--apple-card-shadow);
+            color: var(--apple-text);
+        }
+        .card-title {
+            font-family: var(--apple-font-display);
+            font-weight: 600;
+            letter-spacing: -0.022em;
+            color: var(--apple-text);
+        }
+        .card-text { color: var(--apple-text-secondary); }
+
+        /* Summary card: pure flat card per Apple principle (no left-border accent) */
+        .summary-card {
+            border-left: none !important;
+            background: var(--apple-surface);
+            box-shadow: var(--apple-card-shadow);
+        }
+
+        /* Buttons */
+        .btn {
+            font-family: var(--apple-font-text);
+            font-weight: 400;
+            letter-spacing: -0.022em;
+            border-radius: var(--apple-radius-md);
+        }
+        .btn:focus, .btn:focus-visible {
+            outline: 2px solid var(--apple-focus);
+            outline-offset: 2px;
+            box-shadow: none;
+        }
+        .btn-primary {
+            background-color: var(--apple-blue);
+            border-color: var(--apple-blue);
+            color: #fff;
+        }
+        .btn-primary:hover {
+            background-color: #0077ED;
+            border-color: #0077ED;
+        }
+        .btn-primary:active {
+            background-color: #006edb !important;
+            border-color: #006edb !important;
+        }
+        .btn-outline-dark, .btn-outline-secondary {
+            background-color: transparent;
+            color: var(--apple-text);
+            border-color: var(--apple-divider-strong);
+        }
+        .btn-outline-dark:hover, .btn-outline-secondary:hover {
+            background-color: var(--apple-text);
+            color: #fff;
+        }
+
+        /* Apple pill link CTA (Learn more / Shop) */
+        .btn-pill {
+            background: transparent;
+            color: var(--apple-link);
+            border: 1px solid var(--apple-link);
+            border-radius: var(--apple-radius-pill);
+            font-family: var(--apple-font-text);
+            font-size: 14px;
+            font-weight: 400;
+            letter-spacing: -0.224px;
+            padding: 6px 16px;
+            display: inline-block;
+            transition: background-color 0.15s ease;
+        }
+        .btn-pill:hover {
+            background-color: var(--apple-link);
+            color: #fff;
+            text-decoration: none;
+        }
+
+        .btn-sm {
+            font-size: 12px;
+            letter-spacing: -0.12px;
+            padding: 4px 10px;
+        }
+
+        /* Tables */
+        .table {
+            color: var(--apple-text);
+            font-size: 14px;
+            letter-spacing: -0.224px;
+            --bs-table-bg: var(--apple-surface);
+        }
+        .table th {
+            background-color: var(--apple-surface-alt) !important;
+            color: var(--apple-text-secondary);
+            font-weight: 600;
+            font-size: 12px;
+            letter-spacing: -0.12px;
+            white-space: nowrap;
+            border-bottom: 1px solid var(--apple-divider);
+        }
+        .table td {
+            white-space: nowrap;
+            border-top: 1px solid rgba(0, 0, 0, 0.05);
+        }
+        .table-bordered > :not(caption) > * > * {
+            border-width: 0 1px 1px 0;
+            border-color: rgba(0, 0, 0, 0.06);
+        }
+        .table-light, .table-light > th, .table-light > td {
+            background-color: var(--apple-surface-alt) !important;
+            color: var(--apple-text-secondary);
+        }
+        .table-hover > tbody > tr:hover > * {
+            --bs-table-hover-bg: rgba(0, 113, 227, 0.04);
+        }
+
+        /* Badges — Apple pill */
+        .badge {
+            font-family: var(--apple-font-text);
+            font-weight: 600;
+            border-radius: var(--apple-radius-pill);
+            font-size: 11px;
+            letter-spacing: -0.08px;
+            padding: 4px 10px;
+        }
+        .badge-ezgain { background-color: #198754; color: #fff; }
+        .badge-ezinvest { background-color: var(--apple-blue); color: #fff; }
+        .badge-kr { background-color: var(--apple-blue); color: #fff; }
+        .badge-us { background-color: var(--apple-text); color: #fff; }
+        .bg-primary { background-color: var(--apple-blue) !important; }
+        .bg-danger { background-color: #d70015 !important; }
+        .bg-warning { background-color: #ff9f0a !important; }
+
+        /* Profit/Loss — KR convention (red = profit, blue = loss), Apple tone */
+        .text-profit { color: #d70015 !important; }
+        .text-loss { color: #0071e3 !important; }
+        .text-muted { color: var(--apple-text-tertiary) !important; }
+
+        /* Alerts — soft, minimal */
+        .alert {
+            border: none;
+            border-radius: var(--apple-radius-md);
+            font-size: 14px;
+            letter-spacing: -0.224px;
+        }
+        .alert-danger { background: #ffe8ea; color: #a30011; }
+        .alert-info   { background: #e6f0ff; color: #0050a0; }
+        .alert-warning { background: #fff3e0; color: #8a4b00; }
+
+        code {
+            color: var(--apple-text);
+            background: transparent;
+            font-family: "SF Mono", ui-monospace, Menlo, Monaco, monospace;
+        }
+
+        footer small { color: var(--apple-text-tertiary); letter-spacing: -0.12px; }
     </style>
 </head>
 <body>

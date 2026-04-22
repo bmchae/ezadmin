@@ -3,19 +3,19 @@
 {% block content %}
 
 <style>
-    /* 잔고보기 페이지 글자 축소 */
-    .pf-detail { font-size: 0.8125rem; }
-    .pf-detail .table { font-size: 0.8125rem; }
-    .pf-detail h5 { font-size: 1rem; }
-    .pf-detail h6 { font-size: 0.9rem; }
-    .pf-detail .card-body .small { font-size: 0.75rem; }
-    .pf-detail .fs-5 { font-size: 0.95rem !important; }
-    .pf-detail .btn-sm { font-size: 0.7rem; }
-    .pf-detail .badge { font-size: 0.7rem; }
+    /* 잔고보기 페이지 글자 축소 (Apple 토큰 기반) */
+    .pf-detail { font-size: 13px; letter-spacing: -0.224px; }
+    .pf-detail .table { font-size: 13px; letter-spacing: -0.224px; }
+    .pf-detail h5 { font-size: 18px; letter-spacing: -0.022em; font-weight: 600; }
+    .pf-detail h6 { font-size: 14px; letter-spacing: -0.224px; font-weight: 600; }
+    .pf-detail .card-body .small { font-size: 11px; letter-spacing: -0.12px; color: var(--apple-text-tertiary); }
+    .pf-detail .fs-5 { font-size: 18px !important; letter-spacing: -0.022em; font-weight: 600; }
+    .pf-detail .btn-sm { font-size: 11px; letter-spacing: -0.12px; padding: 3px 8px; }
+    .pf-detail .badge { font-size: 10px; padding: 3px 8px; letter-spacing: -0.08px; }
 </style>
 <div class="pf-detail">
 
-<a href="/" class="btn btn-sm btn-outline-secondary mb-3">&larr; 목록으로</a>
+<a href="/" class="btn-pill mb-3">&larr; 목록으로</a>
 
 {% if error %}
 <div class="alert alert-danger">{{ error }}</div>
