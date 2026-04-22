@@ -344,16 +344,16 @@ def get_overseas_balance(acct_cfg, project_root, acct_config_name=""):
     return holdings, summary
 
 
-def get_pending_sell_orders_overseas(acct_cfg, project_root, acct_config_name=""):
+def get_pending_orders_overseas(acct_cfg, project_root, acct_config_name=""):
     """
-    해외주식 미체결 매도 주문 조회.
-    Returns: {종목코드: {"주문수량": int, "주문단가": float}, ...}
+    해외주식 계좌의 미체결 주문 전체 조회 (매수+매도).
+    Returns: list of dicts with 주문구분/종목코드/종목명/주문수량/주문단가/주문번호/거래소코드
     """
     try:
         token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
     except Exception as e:
         print(f"[pending-overseas] token error: {e}")
-        return {}
+        return []
 
     acct_no = acct_cfg["my_acct_stock"]
     prod_cd = acct_cfg["my_prod"]
@@ -377,33 +377,37 @@ def get_pending_sell_orders_overseas(acct_cfg, project_root, acct_config_name=""
             headers=headers, params=params)
         if res.status_code != 200:
             print(f"[pending-overseas] http {res.status_code}: {res.text[:200]}")
-            return {}
+            return []
         data = res.json()
         if data.get("rt_cd") != "0":
             print(f"[pending-overseas] rt_cd={data.get('rt_cd')} msg={data.get('msg1')}")
-            return {}
+            return []
     except Exception as e:
         print(f"[pending-overseas] request error: {e}")
-        return {}
+        return []
 
     output = data.get("output", []) or []
     print(f"[pending-overseas] {acct_no}-{prod_cd} rows={len(output)}")
 
-    result = {}
+    result = []
     for item in output:
         code = item.get("pdno", "")
-        nccs_qty = int(float(item.get("nccs_qty", 0)))
+        nccs_qty = int(float(item.get("nccs_qty", 0) or 0))
         if not code or nccs_qty == 0:
             continue
-        if item.get("sll_buy_dvsn_cd") == "02":  # 02=매도 (해외)
-            if code not in result:
-                result[code] = {
-                    "주문수량": nccs_qty,
-                    "주문단가": float(item.get("ft_ord_unpr3", 0)),
-                    "주문번호": item.get("odno", ""),
-                    "거래소코드": item.get("ovrs_excg_cd", ""),
-                }
-    print(f"[pending-overseas] matched={len(result)} codes={list(result.keys())}")
+        # 해외: 01=매수, 02=매도
+        sll_buy = item.get("sll_buy_dvsn_cd", "")
+        order_type = "매도" if sll_buy == "02" else "매수" if sll_buy == "01" else sll_buy
+        result.append({
+            "주문구분": order_type,
+            "종목코드": code,
+            "종목명": item.get("prdt_name", "") or code,
+            "주문수량": nccs_qty,
+            "주문단가": float(item.get("ft_ord_unpr3", 0) or 0),
+            "주문번호": item.get("odno", ""),
+            "거래소코드": item.get("ovrs_excg_cd", ""),
+        })
+    print(f"[pending-overseas] matched={len(result)}")
     return result
 
 
@@ -513,17 +517,17 @@ def cancel_order_overseas(acct_cfg, project_root, acct_config_name, order_no, st
     return {"주문번호": data.get("output", {}).get("ODNO", "")}
 
 
-def get_pending_sell_orders(acct_cfg, project_root, acct_config_name=""):
+def get_pending_orders(acct_cfg, project_root, acct_config_name=""):
     """
-    국내주식 미체결 매도 주문 조회.
-    Returns: {종목코드: {"주문수량": int, "주문단가": int}, ...}
+    국내주식 계좌의 미체결 주문 전체 조회 (매수+매도).
+    Returns: list of dicts with 주문구분/종목코드/종목명/주문수량/주문단가/주문번호/krx_fwdg_ord_orgno
     잔여수량(rmn_qty)이 0인 건은 제외한다.
     """
     try:
         token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
     except Exception as e:
         print(f"[pending-domestic] token error: {e}")
-        return {}
+        return []
 
     acct_no = acct_cfg["my_acct_stock"]
     prod_cd = acct_cfg["my_prod"]
@@ -535,7 +539,7 @@ def get_pending_sell_orders(acct_cfg, project_root, acct_config_name=""):
         "ACNT_PRDT_CD": prod_cd,
         "CTX_AREA_FK100": "",
         "CTX_AREA_NK100": "",
-        "INQR_DVSN_1": "1",   # 1=매도
+        "INQR_DVSN_1": "0",   # 0=전체
         "INQR_DVSN_2": "0",
     }
 
@@ -545,35 +549,37 @@ def get_pending_sell_orders(acct_cfg, project_root, acct_config_name=""):
             headers=headers, params=params)
         if res.status_code != 200:
             print(f"[pending-domestic] http {res.status_code}: {res.text[:200]}")
-            return {}
+            return []
         data = res.json()
         if data.get("rt_cd") != "0":
             print(f"[pending-domestic] rt_cd={data.get('rt_cd')} msg={data.get('msg1')}")
-            return {}
+            return []
     except Exception as e:
         print(f"[pending-domestic] request error: {e}")
-        return {}
+        return []
 
     output = data.get("output", []) or []
     print(f"[pending-domestic] {acct_no}-{prod_cd} rows={len(output)}")
 
-    result = {}
+    result = []
     for item in output:
         code = item.get("pdno", "")
         rmn_qty = int(item.get("rmn_qty", 0) or 0)
-        sll_buy = item.get("sll_buy_dvsn_cd", "")
-        odno = item.get("odno", "") or item.get("ord_no", "")
         if not code or rmn_qty == 0:
             continue
-        if sll_buy == "01":  # 01=매도
-            if code not in result:
-                result[code] = {
-                    "주문수량": rmn_qty,
-                    "주문단가": int(float(item.get("ord_unpr", 0) or 0)),
-                    "주문번호": odno,
-                    "krx_fwdg_ord_orgno": item.get("krx_fwdg_ord_orgno", ""),
-                }
-    print(f"[pending-domestic] matched={len(result)} codes={list(result.keys())}")
+        # 국내: 01=매도, 02=매수
+        sll_buy = item.get("sll_buy_dvsn_cd", "")
+        order_type = "매도" if sll_buy == "01" else "매수" if sll_buy == "02" else sll_buy
+        result.append({
+            "주문구분": order_type,
+            "종목코드": code,
+            "종목명": item.get("prdt_name", "") or code,
+            "주문수량": rmn_qty,
+            "주문단가": int(float(item.get("ord_unpr", 0) or 0)),
+            "주문번호": item.get("odno", "") or item.get("ord_no", ""),
+            "krx_fwdg_ord_orgno": item.get("krx_fwdg_ord_orgno", ""),
+        })
+    print(f"[pending-domestic] matched={len(result)}")
     return result
 
 

@@ -6,7 +6,7 @@ import traceback
 from flask import Flask, render_template, request, jsonify, make_response
 from config_loader import load_all_portfolios
 from kis_client import (get_domestic_balance, get_overseas_balance,
-                        get_pending_sell_orders, get_pending_sell_orders_overseas,
+                        get_pending_orders, get_pending_orders_overseas,
                         place_sell_order, place_sell_order_overseas,
                         get_ask_price_domestic, get_ask_price_overseas,
                         cancel_order, cancel_order_overseas)
@@ -77,21 +77,25 @@ def portfolio_detail(name):
     # 수익률 높은 순으로 정렬
     holdings.sort(key=lambda h: h["수익률"], reverse=True)
 
-    # 미체결 매도 주문 조회
-    pending_orders = {}
+    # 미체결 주문 전체 조회 (매수+매도)
     if pf["market"] == "us":
-        pending_orders = get_pending_sell_orders_overseas(pf["account_cfg"], pf["project_root"], acct_name)
+        pending_orders = get_pending_orders_overseas(pf["account_cfg"], pf["project_root"], acct_name)
     else:
-        pending_orders = get_pending_sell_orders(pf["account_cfg"], pf["project_root"], acct_name)
+        pending_orders = get_pending_orders(pf["account_cfg"], pf["project_root"], acct_name)
 
-    # 미체결 주문에 종목명 보강 (보유종목 lookup)
+    # 종목명이 비어있는 경우 보유종목에서 보강
     holdings_name_map = {h["종목코드"]: h["종목명"] for h in holdings}
-    for code, po in pending_orders.items():
-        po["종목명"] = holdings_name_map.get(code, code)
+    for po in pending_orders:
+        if not po.get("종목명"):
+            po["종목명"] = holdings_name_map.get(po["종목코드"], po["종목코드"])
+
+    # holdings 행 렌더에 사용할 종목코드별 미체결 매도 주문 존재 여부
+    pending_sell_codes = {po["종목코드"] for po in pending_orders if po.get("주문구분") == "매도"}
 
     resp = make_response(render_template("portfolio.html", pf=pf, holdings=holdings,
                                          summary=summary, currency=currency, error=None,
-                                         pending_orders=pending_orders))
+                                         pending_orders=pending_orders,
+                                         pending_sell_codes=pending_sell_codes))
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     resp.headers["Pragma"] = "no-cache"
     return resp
