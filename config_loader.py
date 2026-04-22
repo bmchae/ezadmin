@@ -42,48 +42,70 @@ def _ezsplit_to_portfolio(cfg, fname, fpath):
     """
     ezsplit의 config-*.yaml 을 ezadmin 포트폴리오 포맷으로 정규화한다.
     - Upbit(broker_type: upbit)는 지원하지 않으므로 None 반환
-    - KIS 블록이 없으면 None 반환
+    - kis/kw 블록이 둘 다 없으면 None 반환
+    반환 dict는 broker 키로 "kis" 또는 "kw"를 포함한다.
     """
     if cfg.get("broker_type") == "upbit":
         return None
+
     kis = cfg.get("kis") or {}
-    if not kis.get("app_key") or not kis.get("account_no"):
-        return None
+    kw  = cfg.get("kw") or {}
 
-    account_no = str(kis.get("account_no", ""))
-    if "-" in account_no:
-        acct_stock, _, prod = account_no.partition("-")
-    else:
-        acct_stock, prod = account_no, "01"
-
-    server = "vps" if kis.get("is_mock") else "prod"
+    name = fname.replace(".yaml", "")
     market_raw = str(cfg.get("market", "")).lower()
     market = "us" if market_raw in ("overseas", "us", "global", "foreign") else "kr"
 
-    acct_cfg = {
-        "my_app": kis.get("app_key", ""),
-        "my_sec": kis.get("app_secret", ""),
-        "my_acct_stock": acct_stock,
-        "my_prod": prod,
-        "my_htsid": cfg.get("name", ""),
-        "server": server,
-        "prod": KIS_PROD_URL,
-        "vps": KIS_VPS_URL,
-        "my_agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                     "AppleWebKit/537.36 (KHTML, like Gecko) "
-                     "Chrome/114.0.0.0 Safari/537.36"),
-    }
+    if kis.get("app_key") and kis.get("account_no"):
+        broker = "kis"
+        account_no = str(kis.get("account_no", ""))
+        if "-" in account_no:
+            acct_stock, _, prod = account_no.partition("-")
+        else:
+            acct_stock, prod = account_no, "01"
+        server = "vps" if kis.get("is_mock") else "prod"
+        acct_cfg = {
+            "my_app": kis.get("app_key", ""),
+            "my_sec": kis.get("app_secret", ""),
+            "my_acct_stock": acct_stock,
+            "my_prod": prod,
+            "my_htsid": cfg.get("name", ""),
+            "server": server,
+            "prod": KIS_PROD_URL,
+            "vps": KIS_VPS_URL,
+            "my_agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                         "AppleWebKit/537.36 (KHTML, like Gecko) "
+                         "Chrome/114.0.0.0 Safari/537.36"),
+        }
+    elif kw.get("app_key") and kw.get("account_no"):
+        broker = "kw"
+        account_no = str(kw.get("account_no", ""))
+        if "-" in account_no:
+            acct_stock, _, prod = account_no.partition("-")
+        else:
+            acct_stock, prod = account_no, ""
+        acct_cfg = {
+            # Kiwoom 클라이언트가 직접 사용하는 키명 유지
+            "app_key": kw.get("app_key", ""),
+            "app_secret": kw.get("app_secret", ""),
+            "account_no": account_no,
+            "is_mock": bool(kw.get("is_mock", False)),
+            # 뱃지/카드 표시에 사용하기 위해 공통 키도 복제
+            "my_acct_stock": acct_stock,
+            "my_prod": prod,
+        }
+    else:
+        return None
 
-    name = fname.replace(".yaml", "")
     description = f"(ezsplit) {cfg.get('name', name)}"
     return {
         "name": name,
         "description": description,
         "owner": _detect_owner(fname),
-        "account_config_name": name,  # token 파일명에 사용됨 (KIS-{name}-YYYYMMDD)
+        "account_config_name": name,
         "project": "ezsplit",
         "project_root": EZSPLIT_ROOT,
         "market": market,
+        "broker": broker,
         "account_config_path": fpath,
         "account_cfg": acct_cfg,
         "portfolio_cfg": cfg,
@@ -130,6 +152,7 @@ def load_all_portfolios():
                     "project": "ezgain",
                     "project_root": EZGAIN_ROOT,
                     "market": cfg.get("market", "kr"),
+                    "broker": "kis",
                     "account_config_path": acct_path,
                     "account_cfg": acct_cfg,
                     "portfolio_cfg": cfg,
@@ -161,6 +184,7 @@ def load_all_portfolios():
                     "project": "ezinvest",
                     "project_root": EZINVEST_ROOT,
                     "market": cfg.get("market", "kr"),
+                    "broker": "kis",
                     "account_config_path": acct_path,
                     "account_cfg": acct_cfg,
                     "portfolio_cfg": cfg,
@@ -184,19 +208,22 @@ def load_all_portfolios():
             if pf is not None:
                 portfolios.append(pf)
 
-    # 계좌(CANO+PRDT) 중복 제거: ezsplit 우선
-    ezsplit_accts = {
-        (p["account_cfg"].get("my_acct_stock"), p["account_cfg"].get("my_prod"))
-        for p in portfolios if p["project"] == "ezsplit"
-    }
+    # 계좌(broker+CANO+PRDT) 중복 제거: ezsplit 우선
+    # broker를 키에 포함해 Kiwoom(kw) 계좌와 KIS 계좌의 우연한 번호 충돌을 방지
+    def _key(p):
+        return (p.get("broker", "kis"),
+                p["account_cfg"].get("my_acct_stock"),
+                p["account_cfg"].get("my_prod"))
+
+    ezsplit_accts = {_key(p) for p in portfolios if p["project"] == "ezsplit"}
     seen = set()
     deduped = []
     for pf in portfolios:
-        key = (pf["account_cfg"].get("my_acct_stock"), pf["account_cfg"].get("my_prod"))
+        key = _key(pf)
         if pf["project"] != "ezsplit" and key in ezsplit_accts:
-            continue  # ezsplit에 동일 계좌 존재 → 제외
+            continue
         if key in seen:
-            continue  # 같은 프로젝트 내에서도 중복 방지
+            continue
         seen.add(key)
         deduped.append(pf)
 

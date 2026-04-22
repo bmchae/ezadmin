@@ -17,6 +17,7 @@ from kis_client import (get_domestic_balance, get_overseas_balance,
                         place_sell_order, place_sell_order_overseas,
                         get_ask_price_domestic, get_ask_price_overseas,
                         cancel_order, cancel_order_overseas)
+import kw_client
 
 def _load_dotenv():
     """
@@ -118,23 +119,34 @@ def _get_portfolios():
     return _portfolios
 
 
+def _fetch_balance(pf):
+    """broker에 따라 KIS 또는 Kiwoom 잔고 조회를 호출한다."""
+    broker = pf.get("broker", "kis")
+    acct_name = pf.get("account_config_name", "")
+    is_us = pf["market"] == "us"
+    if broker == "kw":
+        fn = kw_client.get_overseas_balance if is_us else kw_client.get_domestic_balance
+    else:
+        fn = get_overseas_balance if is_us else get_domestic_balance
+    return fn(pf["account_cfg"], pf["project_root"], acct_name)
+
+
 def _fetch_list_summary(pf):
     """
     포트폴리오 리스트 카드에 표시할 요약을 조회한다.
     국내/해외 통화 통일 위해 해외는 원화 환산값을 사용한다.
-    Returns: {ok, 통화, 총자산, 현금, 매수금액, 평가금액, 손익, 수익률, error?}
+    Kiwoom 해외는 환율 정보가 없어 원화 환산 불가 → USD 값을 그대로 사용 (참고용).
     """
     try:
-        acct_name = pf.get("account_config_name", "")
+        _, summary = _fetch_balance(pf)
         if pf["market"] == "us":
-            _, summary = get_overseas_balance(pf["account_cfg"], pf["project_root"], acct_name)
-            pchs = summary.get("원화총매수금액", 0) or 0
-            evlu = summary.get("원화총평가금액", 0) or 0
-            pnl  = summary.get("원화총손익금액", 0) or 0
-            rt   = summary.get("원화총수익률", 0) or 0
-            cash = summary.get("원화예수금", 0) or 0  # 외화예수금의 원화 환산 합계
+            # 원화 환산값이 있으면 사용 (KIS), 없으면 USD값 fallback (Kiwoom)
+            pchs = summary.get("원화총매수금액") or summary.get("총매수금액") or 0
+            evlu = summary.get("원화총평가금액") or summary.get("총평가금액") or 0
+            pnl  = summary.get("원화총손익금액") or summary.get("총손익금액") or 0
+            rt   = summary.get("원화총수익률") or summary.get("총수익률") or 0
+            cash = summary.get("원화예수금") or 0
         else:
-            _, summary = get_domestic_balance(pf["account_cfg"], pf["project_root"], acct_name)
             pchs = summary.get("총매수금액", 0) or 0
             evlu = summary.get("총평가금액", 0) or 0
             pnl  = summary.get("총손익금액", 0) or 0
@@ -214,12 +226,8 @@ def portfolio_detail(name):
 
     try:
         acct_name = pf.get("account_config_name", "")
-        if pf["market"] == "us":
-            holdings, summary = get_overseas_balance(pf["account_cfg"], pf["project_root"], acct_name)
-            currency = "USD"
-        else:
-            holdings, summary = get_domestic_balance(pf["account_cfg"], pf["project_root"], acct_name)
-            currency = "KRW"
+        holdings, summary = _fetch_balance(pf)
+        currency = "USD" if pf["market"] == "us" else "KRW"
     except Exception as e:
         traceback.print_exc()
         return render_template("portfolio.html", pf=pf, error=str(e),
@@ -239,8 +247,10 @@ def portfolio_detail(name):
     # 수익률 높은 순으로 정렬
     holdings.sort(key=lambda h: h["수익률"], reverse=True)
 
-    # 미체결 주문 전체 조회 (매수+매도)
-    if pf["market"] == "us":
+    # 미체결 주문 전체 조회 (매수+매도). Kiwoom은 미지원이므로 빈 리스트.
+    if pf.get("broker", "kis") == "kw":
+        pending_orders = []
+    elif pf["market"] == "us":
         pending_orders = get_pending_orders_overseas(pf["account_cfg"], pf["project_root"], acct_name)
     else:
         pending_orders = get_pending_orders(pf["account_cfg"], pf["project_root"], acct_name)
