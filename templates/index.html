@@ -11,6 +11,9 @@
         transform: translateY(-3px);
         box-shadow: rgba(0, 0, 0, 0.30) 3px 8px 36px 0px;
     }
+    /* 프로젝트별 카드 바탕색 틴트 (ezgain은 기본 색 유지) */
+    .portfolio-card.project-ezinvest { background-color: #eff6ff; }
+    .portfolio-card.project-ezsplit  { background-color: #f5f0ff; }
     .portfolio-card .card-title {
         font-family: var(--apple-font-display);
         font-size: 17px;
@@ -75,7 +78,7 @@
 {% for pf in grouped[owner] %}
     {% set s = summaries.get(pf.name) %}
     <div class="col-md-6 col-lg-4">
-        <a href="/portfolio/{{ pf.name }}" class="card h-100 text-decoration-none text-reset portfolio-card">
+        <a href="/portfolio/{{ pf.name }}" class="card h-100 text-decoration-none text-reset portfolio-card project-{{ pf.project }}">
             <div class="card-body">
                 <h6 class="card-title mb-2">{{ pf.description }}</h6>
                 <p class="card-text small text-muted mb-3">

@@ -30,27 +30,48 @@
 </p>
 
 {% if summary %}
-{% if currency != 'USD' and summary.get('D+2예수금') is not none %}
-{% set cash = summary.get('D+2예수금', 0) %}
-{% set total_assets = summary.get('총평가금액', 0) + cash %}
-<div class="row g-3 mb-2">
-    <div class="col-sm-6 col-md-6">
-        <div class="card summary-card" style="border-left-color: #0d6efd;">
-            <div class="card-body py-2">
-                <div class="small text-muted">총자산 (평가금액 + 현금)</div>
-                <div class="fw-bold fs-5">{{ "{:,.0f}".format(total_assets) }}원</div>
+{% if currency == 'USD' %}
+    {% set cash = summary.get('외화예수금', 0) %}
+    {% set total_assets = summary.get('총평가금액', 0) + cash %}
+    <div class="row g-3 mb-2">
+        <div class="col-sm-6 col-md-6">
+            <div class="card summary-card" style="border-left-color: #0d6efd;">
+                <div class="card-body py-2">
+                    <div class="small text-muted">총자산 (평가금액 + 현금)</div>
+                    <div class="fw-bold fs-5">${{ "{:,.2f}".format(total_assets) }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-md-6">
+            <div class="card summary-card" style="border-left-color: #198754;">
+                <div class="card-body py-2">
+                    <div class="small text-muted">현금 (외화예수금)</div>
+                    <div class="fw-bold fs-5">${{ "{:,.2f}".format(cash) }}</div>
+                </div>
             </div>
         </div>
     </div>
-    <div class="col-sm-6 col-md-6">
-        <div class="card summary-card" style="border-left-color: #198754;">
-            <div class="card-body py-2">
-                <div class="small text-muted">현금 (D+2 예수금)</div>
-                <div class="fw-bold fs-5">{{ "{:,.0f}".format(cash) }}원</div>
+{% elif summary.get('D+2예수금') is not none %}
+    {% set cash = summary.get('D+2예수금', 0) %}
+    {% set total_assets = summary.get('총평가금액', 0) + cash %}
+    <div class="row g-3 mb-2">
+        <div class="col-sm-6 col-md-6">
+            <div class="card summary-card" style="border-left-color: #0d6efd;">
+                <div class="card-body py-2">
+                    <div class="small text-muted">총자산 (평가금액 + 현금)</div>
+                    <div class="fw-bold fs-5">{{ "{:,.0f}".format(total_assets) }}원</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-md-6">
+            <div class="card summary-card" style="border-left-color: #198754;">
+                <div class="card-body py-2">
+                    <div class="small text-muted">현금 (D+2 예수금)</div>
+                    <div class="fw-bold fs-5">{{ "{:,.0f}".format(cash) }}원</div>
+                </div>
             </div>
         </div>
     </div>
-</div>
 {% endif %}
 <div class="row g-3 mb-4">
     <div class="col-sm-6 col-md-3">
@@ -110,10 +131,31 @@
 </div>
 
 {% if currency == 'USD' and summary.get('원화총평가금액') %}
+{% set krw_cash = summary.get('원화예수금', 0) %}
+{% set krw_evlu = summary.get('원화총평가금액', 0) %}
+{% set krw_total_assets = krw_evlu + krw_cash %}
+<div class="mb-2">
+    <small class="text-muted">원화 환산 (환율: {{ "{:,.2f}".format(summary.get('환율', 0)) }}원)</small>
+</div>
 <div class="row g-3 mb-2">
-    <div class="col-12">
-        <small class="text-muted">원화 환산 (환율: {{ "{:,.2f}".format(summary.get('환율', 0)) }}원)</small>
+    <div class="col-sm-6 col-md-6">
+        <div class="card summary-card" style="border-left-color: #0d6efd;">
+            <div class="card-body py-2">
+                <div class="small text-muted">원화 총자산 (평가금액 + 현금)</div>
+                <div class="fw-bold fs-5">{{ "{:,.0f}".format(krw_total_assets) }}원</div>
+            </div>
+        </div>
     </div>
+    <div class="col-sm-6 col-md-6">
+        <div class="card summary-card" style="border-left-color: #198754;">
+            <div class="card-body py-2">
+                <div class="small text-muted">원화 현금 (예수금 환산)</div>
+                <div class="fw-bold fs-5">{{ "{:,.0f}".format(krw_cash) }}원</div>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="row g-3 mb-4">
     <div class="col-sm-6 col-md-3">
         <div class="card summary-card" style="border-left-color: #6c757d;">
             <div class="card-body py-2">
@@ -126,7 +168,7 @@
         <div class="card summary-card" style="border-left-color: #6c757d;">
             <div class="card-body py-2">
                 <div class="small text-muted">원화 평가금액</div>
-                <div class="fw-bold">{{ "{:,.0f}".format(summary.get('원화총평가금액', 0)) }}원</div>
+                <div class="fw-bold">{{ "{:,.0f}".format(krw_evlu) }}원</div>
             </div>
         </div>
     </div>

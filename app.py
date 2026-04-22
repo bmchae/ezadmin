@@ -132,7 +132,7 @@ def _fetch_list_summary(pf):
             evlu = summary.get("원화총평가금액", 0) or 0
             pnl  = summary.get("원화총손익금액", 0) or 0
             rt   = summary.get("원화총수익률", 0) or 0
-            cash = None  # 해외 잔고 API에 예수금 없음
+            cash = summary.get("원화예수금", 0) or 0  # 외화예수금의 원화 환산 합계
         else:
             _, summary = get_domestic_balance(pf["account_cfg"], pf["project_root"], acct_name)
             pchs = summary.get("총매수금액", 0) or 0

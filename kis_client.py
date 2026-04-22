@@ -341,10 +341,38 @@ def get_overseas_balance(acct_cfg, project_root, acct_config_name=""):
             "거래소코드": item.get("ovrs_excg_cd", ""),
         })
 
-    # 환율: output2의 frst_bltn_exrt 사용 (output3에 bass_exrt 없음)
+    # 환율 및 통화별 예수금 집계 (output2)
+    # KIS CTRP6504R output2 필드명이 계좌·버전에 따라 다양하므로 여러 후보를 순차 확인
+    CASH_FIELDS = ["frcr_dncl_amt_2", "frcr_dncl_amt1", "frcr_dncl_amt",
+                   "frcr_dncl_amt2", "nxdy_frcr_dncl_amt"]
     exrt = 0.0
-    if isinstance(output2, list) and output2:
-        exrt = float(output2[0].get("frst_bltn_exrt", 0))
+    usd_cash = 0.0
+    krw_cash = 0.0
+    if isinstance(output2, list):
+        if output2:
+            print(f"[overseas-balance] output2 sample keys: {list(output2[0].keys())}")
+        for cur in output2:
+            ccy = cur.get("crcy_cd", "")
+            amt = 0.0
+            for f in CASH_FIELDS:
+                v = cur.get(f)
+                if v not in (None, "", 0, "0"):
+                    try:
+                        amt = float(v)
+                        break
+                    except ValueError:
+                        continue
+            rate = float(cur.get("frst_bltn_exrt", 0) or 0)
+            print(f"[overseas-balance] ccy={ccy} cash={amt} rate={rate}")
+            if ccy == "USD":
+                usd_cash += amt
+                if rate:
+                    exrt = rate
+            if rate:
+                krw_cash += amt * rate
+    if exrt == 0.0 and isinstance(output2, list) and output2:
+        exrt = float(output2[0].get("frst_bltn_exrt", 0) or 0)
+    print(f"[overseas-balance] usd_cash={usd_cash} krw_cash={krw_cash} exrt={exrt}")
 
     # output3에서 합계 추출 (올바른 필드명)
     summary = {}
@@ -368,6 +396,8 @@ def get_overseas_balance(acct_cfg, project_root, acct_config_name=""):
                 "원화총손익금액": krw_pnl,
                 "원화총수익률": round(krw_pnl / krw_pchs * 100, 2) if krw_pchs else usd_rt,
                 "환율": exrt,
+                "외화예수금": usd_cash,
+                "원화예수금": krw_cash,
             }
 
     # output3 실패 시 holdings에서 직접 계산
@@ -385,6 +415,8 @@ def get_overseas_balance(acct_cfg, project_root, acct_config_name=""):
             "원화총손익금액": round(pnl  * exrt) if exrt else 0,
             "원화총수익률": round(pnl / pchs * 100, 2) if pchs else 0,
             "환율": exrt,
+            "외화예수금": usd_cash,
+            "원화예수금": krw_cash,
         }
 
     return holdings, summary
