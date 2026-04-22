@@ -56,11 +56,15 @@ def _find_existing_token(token_dir, cfg_name):
     return None
 
 
-def _get_token(acct_cfg, project_root, acct_config_name=""):
+class _KISTokenExpired(Exception):
+    """KIS 서버가 토큰 만료(EGW00123)를 반환했을 때 발생."""
+
+
+def _get_token(acct_cfg, project_root, acct_config_name="", force_new=False):
     """
     OAuth2 토큰을 반환한다.
-    1) 프로젝트 token/ 디렉토리에서 기존 유효 토큰을 찾아 재사용
-    2) 없으면 새로 발급
+    1) force_new=False 이면 token/ 디렉토리에서 기존 유효 토큰을 찾아 재사용
+    2) 없거나 force_new=True 이면 새로 발급하고 파일 덮어쓰기
     """
     svr = acct_cfg.get("server", "prod")
     base_url = acct_cfg[svr]
@@ -73,10 +77,11 @@ def _get_token(acct_cfg, project_root, acct_config_name=""):
     token_dir = os.path.join(project_root, "token")
     os.makedirs(token_dir, exist_ok=True)
 
-    # 기존 토큰 확인
-    token = _find_existing_token(token_dir, cfg_name)
-    if token:
-        return token, base_url
+    if not force_new:
+        # 기존 토큰 확인
+        token = _find_existing_token(token_dir, cfg_name)
+        if token:
+            return token, base_url
 
     # 새 토큰 발급
     url = f"{base_url}/oauth2/tokenP"
@@ -110,6 +115,40 @@ def _get_token(acct_cfg, project_root, acct_config_name=""):
     return new_token, base_url
 
 
+def _retry_on_token_expiry(fn):
+    """
+    대상 함수가 KIS API 호출 중 EGW00123(토큰 만료)을 감지하면
+    _KISTokenExpired를 raise하도록 구현되어 있을 때,
+    강제 재발급 후 1회 재시도한다.
+    """
+    def wrapper(acct_cfg, project_root, acct_config_name="", *args, **kwargs):
+        try:
+            return fn(acct_cfg, project_root, acct_config_name, *args, **kwargs)
+        except _KISTokenExpired:
+            print(f"[token] EGW00123 감지 → 강제 재발급 후 재시도 ({acct_config_name})")
+            _get_token(acct_cfg, project_root, acct_config_name, force_new=True)
+            return fn(acct_cfg, project_root, acct_config_name, *args, **kwargs)
+    return wrapper
+
+
+def _is_token_expired_response(res):
+    """
+    KIS 응답(Response)에서 EGW00123(토큰 만료)인지 판별.
+    status_code와 무관하게 JSON 본문을 먼저 검사한다.
+    """
+    try:
+        body = res.json()
+    except Exception:
+        return False
+    if not isinstance(body, dict):
+        return False
+    if body.get("msg_cd") == "EGW00123":
+        return True
+    if body.get("error_code") == "EGW00123":
+        return True
+    return False
+
+
 def _make_headers(token, app_key, app_secret, tr_id, agent=""):
     return {
         "Content-Type": "application/json",
@@ -125,6 +164,7 @@ def _make_headers(token, app_key, app_secret, tr_id, agent=""):
     }
 
 
+@_retry_on_token_expiry
 def get_domestic_balance(acct_cfg, project_root, acct_config_name=""):
     """
     국내주식 잔고조회.
@@ -142,6 +182,7 @@ def get_domestic_balance(acct_cfg, project_root, acct_config_name=""):
     all_holdings = []
     fk100 = ""
     nk100 = ""
+    output2 = [{}]
 
     for _ in range(10):  # pagination
         params = {
@@ -160,6 +201,8 @@ def get_domestic_balance(acct_cfg, project_root, acct_config_name=""):
 
         res = requests.get(f"{base_url}/uapi/domestic-stock/v1/trading/inquire-balance",
                            headers=headers, params=params)
+        if _is_token_expired_response(res):
+            raise _KISTokenExpired()
         if res.status_code != 200:
             raise Exception(f"잔고조회 실패: {res.status_code} {res.text}")
 
@@ -217,6 +260,7 @@ def get_domestic_balance(acct_cfg, project_root, acct_config_name=""):
     return all_holdings, summary
 
 
+@_retry_on_token_expiry
 def get_overseas_balance(acct_cfg, project_root, acct_config_name=""):
     """
     해외주식 체결기준현재잔고 조회.
@@ -249,6 +293,8 @@ def get_overseas_balance(acct_cfg, project_root, acct_config_name=""):
 
         res = requests.get(f"{base_url}/uapi/overseas-stock/v1/trading/inquire-present-balance",
                            headers=headers, params=params)
+        if _is_token_expired_response(res):
+            raise _KISTokenExpired()
         if res.status_code != 200:
             raise Exception(f"해외잔고조회 실패: {res.status_code} {res.text}")
 

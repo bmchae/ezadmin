@@ -2,11 +2,15 @@
 ezadmin - Portfolio Dashboard
 ezgain/ezinvest의 포트폴리오 계좌별 보유종목/잔고를 조회하는 웹 대시보드
 """
+import ipaddress
+import os
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from flask import Flask, render_template, request, jsonify, make_response
+from flask import Flask, Response, render_template, request, jsonify, make_response
+from werkzeug.security import check_password_hash
+
 from config_loader import load_all_portfolios
 from kis_client import (get_domestic_balance, get_overseas_balance,
                         get_pending_orders, get_pending_orders_overseas,
@@ -14,7 +18,90 @@ from kis_client import (get_domestic_balance, get_overseas_balance,
                         get_ask_price_domestic, get_ask_price_overseas,
                         cancel_order, cancel_order_overseas)
 
+def _load_dotenv():
+    """
+    프로젝트 루트의 .env 파일을 로드한다.
+    - '#'로 시작하는 라인은 주석
+    - KEY=VALUE 형식, 값은 양쪽 공백 제거
+    - 값이 작은따옴표 또는 큰따옴표로 감싸져 있으면 따옴표 제거 (해시의 '$' 보호용)
+    - 이미 환경변수에 설정된 값은 덮어쓰지 않는다.
+    """
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if not os.path.exists(env_path):
+        return
+    with open(env_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                value = value[1:-1]
+            os.environ.setdefault(key, value)
+
+
+_load_dotenv()
+
 app = Flask(__name__)
+
+AUTH_USERNAME = os.environ.get("AUTH_USERNAME", "")
+AUTH_PASSWORD_HASH = os.environ.get("AUTH_PASSWORD_HASH", "")
+TRUST_PROXY = os.environ.get("TRUST_PROXY", "0") == "1"
+
+
+def _client_ip():
+    """클라이언트 IP를 반환. TRUST_PROXY=1 이면 X-Forwarded-For 최초값 사용."""
+    if TRUST_PROXY:
+        xff = request.headers.get("X-Forwarded-For", "")
+        if xff:
+            return xff.split(",")[0].strip()
+    return request.remote_addr or ""
+
+
+def _is_lan(ip):
+    """localhost / RFC1918 사설 대역은 LAN으로 간주하여 인증 면제."""
+    if not ip:
+        return False
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return addr.is_loopback or addr.is_private or addr.is_link_local
+
+
+def _auth_required_response():
+    return Response(
+        "이 자원에 접근하려면 인증이 필요합니다.",
+        status=401,
+        headers={"WWW-Authenticate": 'Basic realm="ezadmin"'},
+    )
+
+
+@app.before_request
+def _wan_basic_auth():
+    """LAN은 통과, WAN은 Basic Auth 강제."""
+    if _is_lan(_client_ip()):
+        return None
+
+    if not AUTH_USERNAME or not AUTH_PASSWORD_HASH:
+        # 외부에서 접근 중이나 인증 설정이 없음 → 접근 차단 (안전한 기본값)
+        return Response(
+            "외부 접근이 차단되어 있습니다. .env의 AUTH_USERNAME / AUTH_PASSWORD_HASH를 설정하세요.",
+            status=503,
+            mimetype="text/plain; charset=utf-8",
+        )
+
+    auth = request.authorization
+    if (not auth
+            or auth.username != AUTH_USERNAME
+            or not check_password_hash(AUTH_PASSWORD_HASH, auth.password or "")):
+        return _auth_required_response()
+    return None
+
 
 # 포트폴리오 목록 캐시 (앱 시작 시 로드)
 _portfolios = None
