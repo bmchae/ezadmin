@@ -19,6 +19,9 @@ from kis_client import (get_domestic_balance, get_overseas_balance,
                         cancel_order, cancel_order_overseas)
 import kw_client
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
 def _load_dotenv():
     """
     프로젝트 루트의 .env 파일을 로드한다.
@@ -27,7 +30,7 @@ def _load_dotenv():
     - 값이 작은따옴표 또는 큰따옴표로 감싸져 있으면 따옴표 제거 (해시의 '$' 보호용)
     - 이미 환경변수에 설정된 값은 덮어쓰지 않는다.
     """
-    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    env_path = os.path.join(PROJECT_ROOT, ".env")
     if not os.path.exists(env_path):
         return
     with open(env_path, encoding="utf-8") as f:
@@ -47,7 +50,9 @@ def _load_dotenv():
 
 _load_dotenv()
 
-app = Flask(__name__)
+app = Flask(__name__,
+            template_folder=os.path.join(PROJECT_ROOT, "templates"),
+            static_folder=os.path.join(PROJECT_ROOT, "static"))
 
 AUTH_USERNAME = os.environ.get("AUTH_USERNAME", "")
 AUTH_PASSWORD_HASH = os.environ.get("AUTH_PASSWORD_HASH", "")
