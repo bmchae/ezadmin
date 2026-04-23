@@ -60,7 +60,7 @@ python src/app.py         # 또는 ./run.sh
 
 ### 외부 접근 보호 (Basic Auth)
 - LAN(localhost / RFC1918 사설 대역 / link-local)은 인증 면제
-- WAN 은 `.env` 의 `AUTH_USERNAME`, `AUTH_PASSWORD_HASH` 기반 Basic Auth 필수
+- WAN 은 `.env` 의 `WEB_AUTH_USER`, `WEB_AUTH_PASSWORD_HASH` 기반 Basic Auth 필수
 - 인증 설정이 비어 있는 상태에서 외부 접근 시 503 으로 차단 (안전한 기본값)
 - 리버스 프록시 뒤에서 운영 시 `TRUST_PROXY=1` 로 `X-Forwarded-For` 첫 IP를 사용
 
@@ -68,15 +68,15 @@ python src/app.py         # 또는 ./run.sh
 
 ```bash
 python scripts/gen_password_hash.py
-# 출력된 AUTH_USERNAME / AUTH_PASSWORD_HASH 두 줄을 .env 에 추가
+# 출력된 WEB_AUTH_USER / WEB_AUTH_PASSWORD_HASH 두 줄을 .env 에 추가
 # (해시에 '$' 가 포함되므로 반드시 작은따옴표로 감싼다)
 ```
 
 `.env` 예시:
 
 ```env
-AUTH_USERNAME=admin
-AUTH_PASSWORD_HASH='scrypt:32768:8:1$...$...'
+WEB_AUTH_USER=admin
+WEB_AUTH_PASSWORD_HASH='scrypt:32768:8:1$...$...'
 TRUST_PROXY=0
 ```
 

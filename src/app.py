@@ -2,13 +2,19 @@
 ezadmin - Portfolio Dashboard
 ezgain/ezinvest의 포트폴리오 계좌별 보유종목/잔고를 조회하는 웹 대시보드
 """
+import base64
+import hashlib
+import hmac
 import ipaddress
+import json
 import os
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import quote
 
-from flask import Flask, Response, render_template, request, jsonify, make_response
+from flask import (Flask, Response, render_template, request, jsonify,
+                   make_response, redirect)
 from werkzeug.security import check_password_hash
 
 from config_loader import load_all_portfolios
@@ -54,9 +60,15 @@ app = Flask(__name__,
             template_folder=os.path.join(PROJECT_ROOT, "templates"),
             static_folder=os.path.join(PROJECT_ROOT, "static"))
 
-AUTH_USERNAME = os.environ.get("AUTH_USERNAME", "")
-AUTH_PASSWORD_HASH = os.environ.get("AUTH_PASSWORD_HASH", "")
+AUTH_USERNAME = os.environ.get("WEB_AUTH_USER", "")
+AUTH_PASSWORD_HASH = os.environ.get("WEB_AUTH_PASSWORD_HASH", "")
 TRUST_PROXY = os.environ.get("TRUST_PROXY", "0") == "1"
+
+SESSION_COOKIE = "ezadmin_session"
+SESSION_TTL = 24 * 60 * 60  # 24시간
+# 인증 면제 API 엔드포인트 (web frontend 외 API 서버 용도)
+API_PATH_SUFFIXES = ("/sell", "/cancel", "/askprice")
+API_PATH_EXACT = ("/reload",)
 
 
 def _client_ip():
@@ -79,34 +91,166 @@ def _is_lan(ip):
     return addr.is_loopback or addr.is_private or addr.is_link_local
 
 
-def _auth_required_response():
-    return Response(
-        "이 자원에 접근하려면 인증이 필요합니다.",
-        status=401,
-        headers={"WWW-Authenticate": 'Basic realm="ezadmin"'},
+def _is_https():
+    """요청이 HTTPS인지 판단. TRUST_PROXY=1 일 때 X-Forwarded-Proto 사용."""
+    if TRUST_PROXY:
+        return request.headers.get("X-Forwarded-Proto", "").lower() == "https"
+    return request.is_secure
+
+
+def _session_secret():
+    """JWT 서명키. ezsplit과 동일하게 WEB_AUTH_SECRET 우선, 없으면 PASSWORD_HASH 폴백."""
+    return os.environ.get("WEB_AUTH_SECRET") or AUTH_PASSWORD_HASH
+
+
+def _b64url_encode(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _b64url_decode(s):
+    pad = "=" * ((4 - len(s) % 4) % 4)
+    return base64.urlsafe_b64decode(s + pad)
+
+
+def _jwt_encode(payload, secret):
+    """HS256 JWT 생성 (ezsplit의 jose와 호환)."""
+    header = {"alg": "HS256", "typ": "JWT"}
+    h = _b64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8"))
+    p = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    signing_input = f"{h}.{p}".encode("ascii")
+    sig = hmac.new(secret.encode("utf-8"), signing_input, hashlib.sha256).digest()
+    return f"{h}.{p}.{_b64url_encode(sig)}"
+
+
+def _jwt_decode(token, secret):
+    """HS256 JWT 검증 + exp 체크. 성공 시 payload dict, 실패 시 None."""
+    if not token or not secret:
+        return None
+    parts = token.split(".")
+    if len(parts) != 3:
+        return None
+    h_b64, p_b64, s_b64 = parts
+    signing_input = f"{h_b64}.{p_b64}".encode("ascii")
+    expected = hmac.new(secret.encode("utf-8"), signing_input, hashlib.sha256).digest()
+    try:
+        got = _b64url_decode(s_b64)
+    except (ValueError, TypeError):
+        return None
+    if not hmac.compare_digest(expected, got):
+        return None
+    try:
+        payload = json.loads(_b64url_decode(p_b64))
+    except (ValueError, TypeError):
+        return None
+    exp = payload.get("exp")
+    if not isinstance(exp, (int, float)) or exp < time.time():
+        return None
+    return payload
+
+
+def _is_api_path(path):
+    """API 서버용 엔드포인트는 인증 면제 (web frontend만 보호)."""
+    if path in API_PATH_EXACT:
+        return True
+    return any(path.endswith(suf) for suf in API_PATH_SUFFIXES)
+
+
+def _set_session_cookie(resp, token, max_age):
+    resp.set_cookie(
+        SESSION_COOKIE, token,
+        max_age=max_age,
+        httponly=True,
+        secure=_is_https(),
+        samesite="Lax",
+        path="/",
     )
 
 
 @app.before_request
-def _wan_basic_auth():
-    """LAN은 통과, WAN은 Basic Auth 강제."""
+def _require_session():
+    """web frontend만 세션 쿠키로 보호. API 엔드포인트/LAN/공개경로는 통과."""
+    path = request.path
+    # 공개 경로: 로그인/로그아웃/정적 파일 + API 서버 엔드포인트
+    if (path in ("/login", "/logout")
+            or path.startswith("/static/")
+            or _is_api_path(path)):
+        return None
+
     if _is_lan(_client_ip()):
         return None
 
     if not AUTH_USERNAME or not AUTH_PASSWORD_HASH:
-        # 외부에서 접근 중이나 인증 설정이 없음 → 접근 차단 (안전한 기본값)
         return Response(
-            "외부 접근이 차단되어 있습니다. .env의 AUTH_USERNAME / AUTH_PASSWORD_HASH를 설정하세요.",
+            "외부 접근이 차단되어 있습니다. .env의 WEB_AUTH_USER / WEB_AUTH_PASSWORD_HASH를 설정하세요.",
             status=503,
             mimetype="text/plain; charset=utf-8",
         )
 
-    auth = request.authorization
-    if (not auth
-            or auth.username != AUTH_USERNAME
-            or not check_password_hash(AUTH_PASSWORD_HASH, auth.password or "")):
-        return _auth_required_response()
-    return None
+    secret = _session_secret()
+    if not secret:
+        return Response(
+            "서버 인증 설정 오류: WEB_AUTH_SECRET 또는 WEB_AUTH_PASSWORD_HASH 필요.",
+            status=503,
+            mimetype="text/plain; charset=utf-8",
+        )
+
+    token = request.cookies.get(SESSION_COOKIE, "")
+    payload = _jwt_decode(token, secret)
+    if payload and payload.get("sub"):
+        return None
+
+    # 인증 실패 → 로그인 페이지로
+    next_url = request.full_path.rstrip("?") if request.query_string else request.path
+    return redirect(f"/login?next={quote(next_url)}")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    """로그인 폼 / 자격 검증 후 JWT 쿠키 발급."""
+    next_url = (request.values.get("next") or "/").strip()
+    if not next_url.startswith("/"):
+        next_url = "/"
+
+    if request.method == "GET":
+        return render_template("login.html", error=None, next_url=next_url)
+
+    username = (request.form.get("username") or "").strip()
+    password = request.form.get("password") or ""
+
+    if not AUTH_USERNAME or not AUTH_PASSWORD_HASH:
+        return render_template("login.html",
+                               error="서버 인증이 설정되지 않았습니다.",
+                               next_url=next_url), 503
+
+    user_ok = hmac.compare_digest(username, AUTH_USERNAME)
+    try:
+        pass_ok = check_password_hash(AUTH_PASSWORD_HASH, password)
+    except (ValueError, TypeError):
+        pass_ok = False
+    if not (user_ok and pass_ok):
+        return render_template("login.html",
+                               error="아이디 또는 비밀번호가 올바르지 않습니다.",
+                               next_url=next_url), 401
+
+    secret = _session_secret()
+    if not secret:
+        return render_template("login.html",
+                               error="서버 설정 오류 (WEB_AUTH_SECRET).",
+                               next_url=next_url), 503
+
+    now = int(time.time())
+    token = _jwt_encode({"sub": username, "iat": now, "exp": now + SESSION_TTL}, secret)
+
+    resp = make_response(redirect(next_url))
+    _set_session_cookie(resp, token, SESSION_TTL)
+    return resp
+
+
+@app.route("/logout", methods=["GET", "POST"])
+def logout():
+    resp = make_response(redirect("/login"))
+    _set_session_cookie(resp, "", 0)
+    return resp
 
 
 # 포트폴리오 목록 캐시 (앱 시작 시 로드)

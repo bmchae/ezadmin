@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}ezadmin - 로그인{% endblock %}
+{% block content %}
+<style>
+    .login-wrap {
+        min-height: calc(100vh - 200px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .login-card {
+        width: 100%;
+        max-width: 360px;
+        padding: 28px 24px;
+        background: var(--apple-surface);
+        border-radius: var(--apple-radius-lg);
+        box-shadow: var(--apple-card-shadow);
+    }
+    .login-card h1 {
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.022em;
+        margin-bottom: 2px;
+    }
+    .login-card .sub {
+        font-size: 13px;
+        color: var(--apple-text-tertiary);
+        margin-bottom: 20px;
+    }
+    .login-card label {
+        font-size: 12px;
+        color: var(--apple-text-secondary);
+        margin-bottom: 4px;
+    }
+    .login-card .form-control {
+        font-size: 14px;
+        border-radius: var(--apple-radius-sm);
+        border: 1px solid var(--apple-divider-strong);
+        padding: 8px 10px;
+    }
+    .login-card .form-control:focus {
+        border-color: var(--apple-focus);
+        box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.15);
+    }
+    .login-card .btn-primary {
+        width: 100%;
+        font-size: 14px;
+        padding: 8px 12px;
+    }
+    .login-card .hint {
+        font-size: 11px;
+        color: var(--apple-text-tertiary);
+        margin-top: 12px;
+    }
+    .login-error {
+        font-size: 12px;
+        color: #a30011;
+        background: #ffe8ea;
+        padding: 8px 10px;
+        border-radius: var(--apple-radius-sm);
+        margin-bottom: 14px;
+    }
+</style>
+<div class="login-wrap">
+    <form class="login-card" method="POST" action="/login">
+        <h1>ezadmin</h1>
+        <p class="sub">로그인</p>
+        {% if error %}
+        <div class="login-error">{{ error }}</div>
+        {% endif %}
+        <input type="hidden" name="next" value="{{ next_url }}">
+        <div class="mb-3">
+            <label for="username">아이디</label>
+            <input type="text" id="username" name="username" class="form-control"
+                   autocomplete="username" autofocus required>
+        </div>
+        <div class="mb-3">
+            <label for="password">비밀번호</label>
+            <input type="password" id="password" name="password" class="form-control"
+                   autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="btn btn-primary">로그인</button>
+        <p class="hint">세션은 24시간 유지됩니다.</p>
+    </form>
+</div>
+{% endblock %}

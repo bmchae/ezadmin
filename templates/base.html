@@ -238,9 +238,15 @@
 </head>
 <body>
     <nav class="navbar navbar-dark mb-4">
-        <div class="container-fluid px-5">
+        <div class="container-fluid px-5 d-flex align-items-center">
             <a class="navbar-brand fw-bold" href="/">ezadmin</a>
-            <span class="text-light small">Portfolio Dashboard</span>
+            <span class="text-light small ms-2">Portfolio Dashboard</span>
+            <form method="POST" action="/logout" class="ms-auto mb-0">
+                <button type="submit" class="btn btn-sm btn-outline-light"
+                        style="font-size: 11px; padding: 2px 10px; letter-spacing: -0.12px;">
+                    로그아웃
+                </button>
+            </form>
         </div>
     </nav>
     <div class="container-fluid px-5" style="max-width: 95%;">
