@@ -281,13 +281,6 @@
             <th class="text-end">당일등락률</th>
             <th class="text-end">비중(%)</th>
             <th class="text-end">비중차이(%)</th>
-            <th class="text-center">
-                <div class="d-flex gap-1 justify-content-center">
-                    <button class="btn btn-warning btn-sm py-0 px-1" onclick="sellAll(50)">매도50%</button>
-                    <button class="btn btn-secondary btn-sm py-0 px-1" onclick="sellAll(90)">매도90%</button>
-                    <button class="btn btn-danger btn-sm py-0 px-1" onclick="sellAll(100)">매도100%</button>
-                </div>
-            </th>
         </tr>
     </thead>
     <tbody>
@@ -364,26 +357,6 @@
             {% set diff = h.get('비중차이', 0) %}
             <td class="text-end">
                 {{ "+" if diff > 0 else "" }}{{ "{:.2f}".format(diff) }}
-            </td>
-            <td class="text-center">
-                {% if h['종목코드'] in pending_sell_codes %}
-                    <span class="badge bg-warning text-dark">매도 주문 대기중</span>
-                {% else %}
-                    <div class="d-flex gap-1 justify-content-center">
-                        <button class="btn btn-warning btn-sm py-0 px-1"
-                                onclick="quickSell('{{ h['종목코드'] }}', '{{ h['종목명'] }}', {{ h['보유수량']|int }}, '{{ h.get('거래소코드', '') }}', 50, this)">
-                            매도50%
-                        </button>
-                        <button class="btn btn-secondary btn-sm py-0 px-1"
-                                onclick="quickSell('{{ h['종목코드'] }}', '{{ h['종목명'] }}', {{ h['보유수량']|int }}, '{{ h.get('거래소코드', '') }}', 90, this)">
-                            매도90%
-                        </button>
-                        <button class="btn btn-danger btn-sm py-0 px-1"
-                                onclick="quickSell('{{ h['종목코드'] }}', '{{ h['종목명'] }}', {{ h['보유수량']|int }}, '{{ h.get('거래소코드', '') }}', 100, this)">
-                            매도100%
-                        </button>
-                    </div>
-                {% endif %}
             </td>
         </tr>
     {% endfor %}
