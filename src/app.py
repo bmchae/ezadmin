@@ -21,6 +21,7 @@ from config_loader import load_all_portfolios
 from db import init_db, upsert_today, get_recent_snapshots
 from kis_client import (get_domestic_balance, get_overseas_balance,
                         get_domestic_today_realized_pl,
+                        get_overseas_today_realized_pl,
                         get_pending_orders, get_pending_orders_overseas,
                         place_sell_order, place_sell_order_overseas,
                         get_ask_price_domestic, get_ask_price_overseas,
@@ -292,7 +293,7 @@ def _fetch_list_summary(pf):
     당일 실현손익은 KIS 국내 실전계좌에서만 지원하며, 그 외에는 None.
     """
     try:
-        _, summary = _fetch_balance(pf)
+        holdings, summary = _fetch_balance(pf)
         if pf["market"] == "us":
             # 원화 환산값이 있으면 사용 (KIS), 없으면 USD값 fallback (Kiwoom)
             pchs = summary.get("원화총매수금액") or summary.get("총매수금액") or 0
@@ -307,16 +308,27 @@ def _fetch_list_summary(pf):
             rt   = summary.get("총수익률", 0) or 0
             cash = summary.get("D+2예수금", 0) or 0
 
-        # 당일 실현손익 (KIS 국내 실전계좌만 지원)
+        # 당일 실현손익: broker + market 조합별 분기
         today_rlz = None
-        if pf.get("broker", "kis") == "kis" and pf["market"] == "kr":
+        broker = pf.get("broker", "kis")
+        market = pf["market"]
+        today_fn = None
+        if broker == "kis" and market == "kr":
+            today_fn = get_domestic_today_realized_pl
+        elif broker == "kis" and market == "us":
+            today_fn = get_overseas_today_realized_pl
+        elif broker == "kw" and market == "kr":
+            today_fn = kw_client.get_domestic_today_realized_pl
+        if today_fn is not None:
             try:
-                today_rlz_raw = get_domestic_today_realized_pl(
+                today_rlz_raw = today_fn(
                     pf["account_cfg"], pf["project_root"],
-                    pf.get("account_config_name", ""))
+                    pf.get("account_config_name", ""),
+                    holdings=holdings)
                 if today_rlz_raw is not None:
                     today_rlz = today_rlz_raw.get("실현손익", 0) or 0
-            except Exception:
+            except Exception as e:
+                print(f"[today_rlz] {pf.get('name','?')} ({broker}/{market}): {e}")
                 today_rlz = None
 
         result = {

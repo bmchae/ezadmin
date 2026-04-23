@@ -314,3 +314,86 @@ def get_overseas_balance(acct_cfg, project_root, acct_config_name=""):
         "환율": 0,
     }
     return holdings, summary
+
+
+@_retry_on_token_expiry
+def get_domestic_today_realized_pl(acct_cfg, project_root, acct_config_name="",
+                                    holdings=None, **_kwargs):
+    """
+    Kiwoom 국내 당일 실현손익 조회 (ka10077 당일실현손익상세요청).
+
+    ka10077 응답의 top-level `tdy_rlzt_pl` 은 계좌 전체 당일실현손익이며,
+    `tdy_rlzt_pl_dtl` 리스트가 종목별 상세(각 항목에 stk_cd 필드 포함)이다.
+    stk_cd 는 `Required=Y` 이지만 범위 필터는 상세 리스트에만 적용되는 것으로
+    판단되어, **보유종목 중 임의 1개로 단 1회만 호출**하고 top-level 값만 사용.
+
+    holdings 제공 시 kt00018 호출 스킵. 모의(is_mock)는 미지원.
+    Returns: dict(실현손익=net int) 또는 None.
+    """
+    if acct_cfg.get("is_mock"):
+        return None
+
+    token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    app_key = acct_cfg["app_key"]
+    app_secret = acct_cfg["app_secret"]
+
+    # 호출용 stk_cd 1개 확보 (holdings 가 None 이면 kt00018 폴백)
+    stk_cd = None
+    if holdings is not None:
+        for h in holdings:
+            code = (h.get("종목코드") or "").strip().lstrip("A")
+            if code:
+                stk_cd = code[:6]
+                break
+    else:
+        try:
+            pos_data = _kw_post(base_url, token, app_key, app_secret,
+                                "kt00018", {"qry_tp": "1", "dmst_stex_tp": "KRX"})
+        except _KWTokenExpired:
+            raise
+        except Exception as e:
+            print(f"[kw-domestic-rlz] kt00018 실패 ({acct_config_name}): {e}")
+            return None
+        items = (pos_data.get("acnt_evlt_remn_indv_tot")
+                 or pos_data.get("output1")
+                 or pos_data.get("output") or [])
+        for it in items:
+            code = (it.get("stk_cd") or "").strip().lstrip("A")
+            if code:
+                stk_cd = code[:6]
+                break
+
+    if not stk_cd:
+        # 보유종목이 없으면 조회 불가 (향후 거래가 있었던 종목 코드를 확보하도록 확장 여지)
+        return {"실현손익": 0}
+
+    try:
+        d = _kw_post(base_url, token, app_key, app_secret,
+                     "ka10077", {"stk_cd": stk_cd})
+    except _KWTokenExpired:
+        raise
+    except Exception as e:
+        print(f"[kw-domestic-rlz] ka10077 실패 ({acct_config_name}, stk_cd={stk_cd}): {e}")
+        return None
+
+    # top-level tdy_rlzt_pl 은 쿼리한 종목만의 값이라 오늘 거래 없으면 0.
+    # 반면 tdy_rlzt_pl_dtl 은 계좌 전체 당일 체결 상세(각 항목에 자체 stk_cd 포함)로 보이며,
+    # 항목별 net = tdy_sel_pl - tdy_trde_cmsn - tdy_trde_tax 를 모두 합산하면 계좌 총액.
+    tdy_top = int(_f(d.get("tdy_rlzt_pl")))
+    dtl = d.get("tdy_rlzt_pl_dtl") or []
+    dtl_gross = sum(int(_f(it.get("tdy_sel_pl"))) for it in dtl)
+    dtl_cmsn = sum(int(_f(it.get("tdy_trde_cmsn"))) for it in dtl)
+    dtl_tax = sum(int(_f(it.get("tdy_trde_tax"))) for it in dtl)
+    dtl_net = dtl_gross - dtl_cmsn - dtl_tax
+    uniq_codes = len({(it.get("stk_cd") or "").strip() for it in dtl if it.get("stk_cd")})
+    print(f"[kw-domestic-rlz] {acct_config_name} stk_cd={stk_cd} "
+          f"top={tdy_top:,} dtl_items={len(dtl)} uniq_stk={uniq_codes} "
+          f"dtl_gross={dtl_gross:,} cmsn={dtl_cmsn:,} tax={dtl_tax:,} dtl_net={dtl_net:,}")
+    return {
+        "실현손익": dtl_net,
+        "당일매도손익_gross": dtl_gross,
+        "수수료": dtl_cmsn,
+        "세금": dtl_tax,
+        "상세건수": len(dtl),
+        "종목수": uniq_codes,
+    }

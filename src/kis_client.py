@@ -261,10 +261,11 @@ def get_domestic_balance(acct_cfg, project_root, acct_config_name=""):
 
 
 @_retry_on_token_expiry
-def get_domestic_today_realized_pl(acct_cfg, project_root, acct_config_name=""):
+def get_domestic_today_realized_pl(acct_cfg, project_root, acct_config_name="", **_kwargs):
     """
     국내주식 당일 실현손익 조회 (TTTC8715R, 기간별매매손익현황조회).
     시작/종료일을 오늘(KST)로 지정해 오늘 하루 실현손익 합계를 얻는다.
+    (**_kwargs 는 kw 와 시그니처 통일용; 여기서는 사용 안 함.)
     Returns: dict(실현손익=int, 매도금액=int, 매수금액=int, 수익률=float) 또는 None.
     모의계좌(server=vps)는 미지원이므로 None.
     """
@@ -338,6 +339,80 @@ def get_domestic_today_realized_pl(acct_cfg, project_root, acct_config_name=""):
         "매도금액": _to_int(output2_all.get("tot_sll_amt")),
         "매수금액": _to_int(output2_all.get("tot_buy_amt")),
         "수익률": _to_float(output2_all.get("pnl_rt")),
+    }
+
+
+@_retry_on_token_expiry
+def get_overseas_today_realized_pl(acct_cfg, project_root, acct_config_name="", **_kwargs):
+    """
+    해외주식 당일 실현손익 조회 (TTTS3039R 해외주식 기간손익, v1_해외주식-032).
+    KIS 공식 샘플 기준: OVRS_EXCG_CD 공란=전체, CRCY_CD 공란=전체,
+    WCRC_FRCR_DVSN_CD 02=원화 환산. output2의 ovrs_rlzt_pfls_tot_amt 사용.
+    (**_kwargs 는 kw 와 시그니처 통일용.)
+    Returns: dict(실현손익=int 원화) 또는 None.
+    모의계좌(server=vps)는 미지원이므로 None.
+    """
+    if acct_cfg.get("server", "prod") != "prod":
+        return None
+
+    today = datetime.now(timezone(timedelta(hours=9))).strftime("%Y%m%d")
+    token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    headers = _make_headers(token, acct_cfg["my_app"], acct_cfg["my_sec"],
+                            "TTTS3039R", acct_cfg.get("my_agent", ""))
+
+    params = {
+        "CANO": acct_cfg["my_acct_stock"],
+        "ACNT_PRDT_CD": acct_cfg["my_prod"],
+        "OVRS_EXCG_CD": "",          # 공란 = 전체 거래소
+        "NATN_CD": "",               # 공란 (기본값)
+        "CRCY_CD": "",               # 공란 = 전체 통화
+        "PDNO": "",                  # 공란 = 전체 종목
+        "INQR_STRT_DT": today,
+        "INQR_END_DT": today,
+        "WCRC_FRCR_DVSN_CD": "02",   # 01=외화, 02=원화 (원화 환산으로 받음)
+        "CTX_AREA_FK200": "",
+        "CTX_AREA_NK200": "",
+    }
+
+    try:
+        res = requests.get(
+            base_url + "/uapi/overseas-stock/v1/trading/inquire-period-profit",
+            headers=headers, params=params, timeout=10)
+    except requests.RequestException as e:
+        print(f"[kis-overseas-rlz] 요청 실패 ({acct_config_name}): {e}")
+        return None
+
+    if _is_token_expired_response(res):
+        raise _KISTokenExpired()
+    if res.status_code != 200:
+        print(f"[kis-overseas-rlz] HTTP {res.status_code} ({acct_config_name}): {res.text[:200]}")
+        return None
+    try:
+        body = res.json()
+    except (ValueError, TypeError):
+        return None
+    if body.get("rt_cd") != "0":
+        print(f"[kis-overseas-rlz] {acct_config_name} rt_cd={body.get('rt_cd')} msg={body.get('msg1')}")
+        return None
+
+    out2 = body.get("output2") or {}
+    if isinstance(out2, list):
+        out2 = out2[0] if out2 else {}
+
+    def _to_int(v):
+        try:
+            return int(float(v or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    # 공식 필드명: output2.ovrs_rlzt_pfls_tot_amt (해외실현손익총금액)
+    # 원화환산(02)이므로 단위는 원.
+    rlz = _to_int(out2.get("ovrs_rlzt_pfls_tot_amt"))
+    return {
+        "실현손익": rlz,
+        "매도금액": _to_int(out2.get("stck_sll_amt_smtl")),
+        "매수금액": _to_int(out2.get("stck_buy_amt_smtl")),
+        "수익률": float(out2.get("tot_pftrt") or 0),
     }
 
 
