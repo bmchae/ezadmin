@@ -41,17 +41,41 @@ def _is_commented_out(path):
 def _ezsplit_to_portfolio(cfg, fname, fpath):
     """
     ezsplit의 config-*.yaml 을 ezadmin 포트폴리오 포맷으로 정규화한다.
-    - Upbit(broker_type: upbit)는 지원하지 않으므로 None 반환
-    - kis/kw 블록이 둘 다 없으면 None 반환
-    반환 dict는 broker 키로 "kis" 또는 "kw"를 포함한다.
+    - Upbit(broker_type: upbit): broker="upbit", market="crypto"
+    - kis/kw 블록 중 하나가 있으면 해당 브로커로
+    - 셋 다 없으면 None 반환
     """
+    name = fname.replace(".yaml", "")
+
     if cfg.get("broker_type") == "upbit":
-        return None
+        upbit = cfg.get("upbit") or {}
+        if not (upbit.get("access_key") and upbit.get("secret_key")):
+            return None
+        acct_cfg = {
+            "access_key": upbit.get("access_key"),
+            "secret_key": upbit.get("secret_key"),
+            # 카드 배지 표시용 공통 키 (Upbit은 계좌번호 개념 없음)
+            "my_acct_stock": "UPBIT",
+            "my_prod": "",
+        }
+        description = f"(ezsplit) {cfg.get('name', name)}"
+        return {
+            "name": name,
+            "description": description,
+            "owner": _detect_owner(fname),
+            "account_config_name": name,
+            "project": "ezsplit",
+            "project_root": EZSPLIT_ROOT,
+            "market": "crypto",
+            "broker": "upbit",
+            "account_config_path": fpath,
+            "account_cfg": acct_cfg,
+            "portfolio_cfg": cfg,
+        }
 
     kis = cfg.get("kis") or {}
     kw  = cfg.get("kw") or {}
 
-    name = fname.replace(".yaml", "")
     market_raw = str(cfg.get("market", "")).lower()
     market = "us" if market_raw in ("overseas", "us", "global", "foreign") else "kr"
 
@@ -208,12 +232,17 @@ def load_all_portfolios():
             if pf is not None:
                 portfolios.append(pf)
 
-    # 계좌(broker+CANO+PRDT) 중복 제거: ezsplit 우선
-    # broker를 키에 포함해 Kiwoom(kw) 계좌와 KIS 계좌의 우연한 번호 충돌을 방지
+    # 계좌 중복 제거: ezsplit 우선.
+    # broker 별 식별자:
+    #   - kis/kw : (my_acct_stock, my_prod) = CANO + PRDT
+    #   - upbit  : access_key (계좌번호 개념이 없으므로 키로 사용)
+    # broker 를 키에 포함해 브로커 간 우연한 번호 충돌을 방지.
     def _key(p):
-        return (p.get("broker", "kis"),
-                p["account_cfg"].get("my_acct_stock"),
-                p["account_cfg"].get("my_prod"))
+        broker = p.get("broker", "kis")
+        acct = p["account_cfg"]
+        if broker == "upbit":
+            return (broker, acct.get("access_key", ""), "")
+        return (broker, acct.get("my_acct_stock"), acct.get("my_prod"))
 
     ezsplit_accts = {_key(p) for p in portfolios if p["project"] == "ezsplit"}
     seen = set()

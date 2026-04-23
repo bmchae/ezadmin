@@ -27,6 +27,7 @@ from kis_client import (get_domestic_balance, get_overseas_balance,
                         get_ask_price_domestic, get_ask_price_overseas,
                         cancel_order, cancel_order_overseas)
 import kw_client
+import upbit_client
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -274,11 +275,13 @@ def _get_portfolios():
 
 
 def _fetch_balance(pf):
-    """broker에 따라 KIS 또는 Kiwoom 잔고 조회를 호출한다."""
+    """broker에 따라 KIS / Kiwoom / Upbit 잔고 조회를 호출한다."""
     broker = pf.get("broker", "kis")
     acct_name = pf.get("account_config_name", "")
     is_us = pf["market"] == "us"
-    if broker == "kw":
+    if broker == "upbit":
+        fn = upbit_client.get_balance
+    elif broker == "kw":
         fn = kw_client.get_overseas_balance if is_us else kw_client.get_domestic_balance
     else:
         fn = get_overseas_balance if is_us else get_domestic_balance
@@ -520,8 +523,8 @@ def portfolio_detail(name):
     # 수익률 높은 순으로 정렬
     holdings.sort(key=lambda h: h["수익률"], reverse=True)
 
-    # 미체결 주문 전체 조회 (매수+매도). Kiwoom은 미지원이므로 빈 리스트.
-    if pf.get("broker", "kis") == "kw":
+    # 미체결 주문 전체 조회 (매수+매도). Kiwoom / Upbit 은 미지원이므로 빈 리스트.
+    if pf.get("broker", "kis") in ("kw", "upbit"):
         pending_orders = []
     elif pf["market"] == "us":
         pending_orders = get_pending_orders_overseas(pf["account_cfg"], pf["project_root"], acct_name)
@@ -552,6 +555,8 @@ def sell_order(name):
     pf = next((p for p in portfolios if p["name"] == name), None)
     if pf is None:
         return jsonify({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
+    if pf.get("broker") == "upbit":
+        return jsonify({"ok": False, "error": "Upbit 매도는 지원되지 않습니다."})
 
     body = request.get_json()
     code = body.get("code", "")
@@ -581,6 +586,8 @@ def cancel_sell_order(name):
     pf = next((p for p in portfolios if p["name"] == name), None)
     if pf is None:
         return jsonify({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
+    if pf.get("broker") == "upbit":
+        return jsonify({"ok": False, "error": "Upbit 주문 취소는 지원되지 않습니다."})
 
     body = request.get_json()
     code = body.get("code", "")
@@ -612,6 +619,8 @@ def get_askprice(name):
     pf = next((p for p in portfolios if p["name"] == name), None)
     if pf is None:
         return jsonify({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
+    if pf.get("broker") == "upbit":
+        return jsonify({"ok": False, "error": "Upbit 호가 조회는 지원되지 않습니다."})
 
     code = request.args.get("code", "")
     excg_cd = request.args.get("excg_cd", "")

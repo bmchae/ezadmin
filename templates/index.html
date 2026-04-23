@@ -123,7 +123,13 @@
                 <p class="card-text small text-muted mb-3">
                     <span class="badge badge-{{ pf.project }}">{{ pf.project }}</span>
                     <span class="badge badge-{{ pf.market }}">{{ pf.market | upper }}</span>
-                    <span class="ms-1">{{ pf.account_cfg.my_acct_stock }}-{{ pf.account_cfg.my_prod }}</span>
+                    <span class="ms-1">
+                        {% if pf.broker == 'upbit' %}
+                            UPBIT
+                        {% else %}
+                            {{ pf.account_cfg.my_acct_stock }}-{{ pf.account_cfg.my_prod }}
+                        {% endif %}
+                    </span>
                 </p>
 
                 {% if s and s.ok %}

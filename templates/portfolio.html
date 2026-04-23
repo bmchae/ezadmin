@@ -26,7 +26,7 @@
 <p class="text-muted small">
     <span class="badge badge-{{ pf.project }}">{{ pf.project }}</span>
     <span class="badge badge-{{ pf.market }}">{{ pf.market | upper }}</span>
-    계좌: {{ pf.account_cfg.my_acct_stock }}-{{ pf.account_cfg.my_prod }}
+    계좌: {% if pf.broker == 'upbit' %}UPBIT{% else %}{{ pf.account_cfg.my_acct_stock }}-{{ pf.account_cfg.my_prod }}{% endif %}
 </p>
 
 {% if summary %}
