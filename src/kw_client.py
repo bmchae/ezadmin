@@ -179,12 +179,6 @@ def get_domestic_balance(acct_cfg, project_root, acct_config_name=""):
              or pos_data.get("output1")
              or pos_data.get("output")
              or [])
-    print(f"[kw-balance] kt00018 items={len(items)} top-level-keys={list(pos_data.keys())[:20]}")
-    # 계좌 합계 레벨 필드 덤프
-    _kw_top_debug = {k: v for k, v in pos_data.items() if not isinstance(v, (list, dict))}
-    print(f"[kw-balance] kt00018 totals: {_kw_top_debug}")
-    if items:
-        print(f"[kw-balance] FULL sample item #0: {items[0]}")
 
     holdings = []
     total_pchs = 0.0

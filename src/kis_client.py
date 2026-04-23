@@ -349,8 +349,6 @@ def get_overseas_balance(acct_cfg, project_root, acct_config_name=""):
     usd_cash = 0.0
     krw_cash = 0.0
     if isinstance(output2, list):
-        if output2:
-            print(f"[overseas-balance] output2 sample keys: {list(output2[0].keys())}")
         for cur in output2:
             ccy = cur.get("crcy_cd", "")
             amt = 0.0
@@ -363,7 +361,6 @@ def get_overseas_balance(acct_cfg, project_root, acct_config_name=""):
                     except ValueError:
                         continue
             rate = float(cur.get("frst_bltn_exrt", 0) or 0)
-            print(f"[overseas-balance] ccy={ccy} cash={amt} rate={rate}")
             if ccy == "USD":
                 usd_cash += amt
                 if rate:
@@ -372,7 +369,6 @@ def get_overseas_balance(acct_cfg, project_root, acct_config_name=""):
                 krw_cash += amt * rate
     if exrt == 0.0 and isinstance(output2, list) and output2:
         exrt = float(output2[0].get("frst_bltn_exrt", 0) or 0)
-    print(f"[overseas-balance] usd_cash={usd_cash} krw_cash={krw_cash} exrt={exrt}")
 
     # output3에서 합계 추출 (올바른 필드명)
     summary = {}
@@ -465,7 +461,6 @@ def get_pending_orders_overseas(acct_cfg, project_root, acct_config_name=""):
         return []
 
     output = data.get("output", []) or []
-    print(f"[pending-overseas] {acct_no}-{prod_cd} rows={len(output)}")
 
     result = []
     for item in output:
@@ -485,7 +480,6 @@ def get_pending_orders_overseas(acct_cfg, project_root, acct_config_name=""):
             "주문번호": item.get("odno", ""),
             "거래소코드": item.get("ovrs_excg_cd", ""),
         })
-    print(f"[pending-overseas] matched={len(result)}")
     return result
 
 
@@ -637,7 +631,6 @@ def get_pending_orders(acct_cfg, project_root, acct_config_name=""):
         return []
 
     output = data.get("output", []) or []
-    print(f"[pending-domestic] {acct_no}-{prod_cd} rows={len(output)}")
 
     result = []
     for item in output:
@@ -657,7 +650,6 @@ def get_pending_orders(acct_cfg, project_root, acct_config_name=""):
             "주문번호": item.get("odno", "") or item.get("ord_no", ""),
             "krx_fwdg_ord_orgno": item.get("krx_fwdg_ord_orgno", ""),
         })
-    print(f"[pending-domestic] matched={len(result)}")
     return result
 
 
