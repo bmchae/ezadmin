@@ -19,6 +19,7 @@ from werkzeug.security import check_password_hash
 
 from config_loader import load_all_portfolios
 from kis_client import (get_domestic_balance, get_overseas_balance,
+                        get_domestic_today_realized_pl,
                         get_pending_orders, get_pending_orders_overseas,
                         place_sell_order, place_sell_order_overseas,
                         get_ask_price_domestic, get_ask_price_overseas,
@@ -285,6 +286,7 @@ def _fetch_list_summary(pf):
     포트폴리오 리스트 카드에 표시할 요약을 조회한다.
     국내/해외 통화 통일 위해 해외는 원화 환산값을 사용한다.
     Kiwoom 해외는 환율 정보가 없어 원화 환산 불가 → USD 값을 그대로 사용 (참고용).
+    당일 실현손익은 KIS 국내 실전계좌에서만 지원하며, 그 외에는 None.
     """
     try:
         _, summary = _fetch_balance(pf)
@@ -301,6 +303,19 @@ def _fetch_list_summary(pf):
             pnl  = summary.get("총손익금액", 0) or 0
             rt   = summary.get("총수익률", 0) or 0
             cash = summary.get("D+2예수금", 0) or 0
+
+        # 당일 실현손익 (KIS 국내 실전계좌만 지원)
+        today_rlz = None
+        if pf.get("broker", "kis") == "kis" and pf["market"] == "kr":
+            try:
+                today_rlz_raw = get_domestic_today_realized_pl(
+                    pf["account_cfg"], pf["project_root"],
+                    pf.get("account_config_name", ""))
+                if today_rlz_raw is not None:
+                    today_rlz = today_rlz_raw.get("실현손익", 0) or 0
+            except Exception:
+                today_rlz = None
+
         return {
             "ok": True,
             "통화": "KRW",
@@ -310,6 +325,7 @@ def _fetch_list_summary(pf):
             "평가금액": evlu,
             "손익": pnl,
             "수익률": rt,
+            "당일실현손익": today_rlz,
         }
     except Exception as e:
         return {"ok": False, "error": str(e)}

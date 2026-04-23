@@ -6,7 +6,7 @@ ezgain/ezinvest의 기존 모듈을 import하지 않고 독립적으로 동작�
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import requests
 import yaml
@@ -258,6 +258,87 @@ def get_domestic_balance(acct_cfg, project_root, acct_config_name=""):
             summary["총수익률"] = round(summary["총손익금액"] / summary["총매수금액"] * 100, 2)
 
     return all_holdings, summary
+
+
+@_retry_on_token_expiry
+def get_domestic_today_realized_pl(acct_cfg, project_root, acct_config_name=""):
+    """
+    국내주식 당일 실현손익 조회 (TTTC8715R, 기간별매매손익현황조회).
+    시작/종료일을 오늘(KST)로 지정해 오늘 하루 실현손익 합계를 얻는다.
+    Returns: dict(실현손익=int, 매도금액=int, 매수금액=int, 수익률=float) 또는 None.
+    모의계좌(server=vps)는 미지원이므로 None.
+    """
+    if acct_cfg.get("server", "prod") != "prod":
+        return None
+
+    # KIS API 는 KST 기준
+    today = datetime.now(timezone(timedelta(hours=9))).strftime("%Y%m%d")
+
+    token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    headers = _make_headers(token, acct_cfg["my_app"], acct_cfg["my_sec"],
+                            "TTTC8715R", acct_cfg.get("my_agent", ""))
+
+    output2_all = {}
+    fk100 = ""
+    nk100 = ""
+
+    for _ in range(10):
+        params = {
+            "CANO": acct_cfg["my_acct_stock"],
+            "ACNT_PRDT_CD": acct_cfg["my_prod"],
+            "SORT_DVSN": "00",
+            "INQR_STRT_DT": today,
+            "INQR_END_DT": today,
+            "CBLC_DVSN": "00",
+            "PDNO": "",
+            "CTX_AREA_FK100": fk100,
+            "CTX_AREA_NK100": nk100,
+        }
+        res = requests.get(base_url + "/uapi/domestic-stock/v1/trading/inquire-period-trade-profit",
+                           headers=headers, params=params, timeout=10)
+        if _is_token_expired_response(res):
+            raise _KISTokenExpired()
+        if res.status_code != 200:
+            return None
+        body = res.json()
+        if body.get("rt_cd") != "0":
+            return None
+        # output2 는 요약(단일 오브젝트). 연속조회가 있더라도 최종 누적값 사용.
+        out2 = body.get("output2") or {}
+        if isinstance(out2, list):
+            out2 = out2[0] if out2 else {}
+        if out2:
+            output2_all = out2
+
+        tr_cont = res.headers.get("tr_cont", "")
+        fk100 = body.get("ctx_area_fk100", "") or ""
+        nk100 = body.get("ctx_area_nk100", "") or ""
+        if tr_cont not in ("M", "F"):
+            break
+        headers["tr_cont"] = "N"
+        time.sleep(0.1)
+
+    if not output2_all:
+        return {"실현손익": 0, "매도금액": 0, "매수금액": 0, "수익률": 0.0}
+
+    def _to_int(v):
+        try:
+            return int(float(v or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def _to_float(v):
+        try:
+            return float(v or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    return {
+        "실현손익": _to_int(output2_all.get("tot_rlzt_pfls")),
+        "매도금액": _to_int(output2_all.get("tot_sll_amt")),
+        "매수금액": _to_int(output2_all.get("tot_buy_amt")),
+        "수익률": _to_float(output2_all.get("pnl_rt")),
+    }
 
 
 @_retry_on_token_expiry

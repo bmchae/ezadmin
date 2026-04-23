@@ -122,6 +122,18 @@
                                 {{ "+" if rt > 0 else "" }}{{ "{:.2f}".format(rt) }}%
                             </span>
                         </div>
+                        <div class="pf-divider"></div>
+                        {% set today_rlz = s.get('당일실현손익') %}
+                        <div class="pf-row">
+                            <span class="label">당일 실현손익</span>
+                            {% if today_rlz is none %}
+                                <span class="value text-muted">-</span>
+                            {% else %}
+                                <span class="value {{ 'text-profit' if today_rlz > 0 else 'text-loss' if today_rlz < 0 else '' }}">
+                                    {{ "+" if today_rlz > 0 else "" }}{{ "{:,.0f}".format(today_rlz) }}원
+                                </span>
+                            {% endif %}
+                        </div>
                     </div>
                 {% else %}
                     <div class="small text-muted">
