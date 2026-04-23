@@ -227,3 +227,8 @@ __marimo__/
 token/
 config/
 docs/
+
+#
+# ezadmin
+#
+data/

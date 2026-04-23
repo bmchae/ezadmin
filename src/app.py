@@ -18,6 +18,7 @@ from flask import (Flask, Response, render_template, request, jsonify,
 from werkzeug.security import check_password_hash
 
 from config_loader import load_all_portfolios
+from db import init_db, upsert_today, get_recent_snapshots
 from kis_client import (get_domestic_balance, get_overseas_balance,
                         get_domestic_today_realized_pl,
                         get_pending_orders, get_pending_orders_overseas,
@@ -60,6 +61,8 @@ _load_dotenv()
 app = Flask(__name__,
             template_folder=os.path.join(PROJECT_ROOT, "templates"),
             static_folder=os.path.join(PROJECT_ROOT, "static"))
+
+init_db(PROJECT_ROOT)
 
 AUTH_USERNAME = os.environ.get("WEB_AUTH_USER", "")
 AUTH_PASSWORD_HASH = os.environ.get("WEB_AUTH_PASSWORD_HASH", "")
@@ -316,7 +319,7 @@ def _fetch_list_summary(pf):
             except Exception:
                 today_rlz = None
 
-        return {
+        result = {
             "ok": True,
             "통화": "KRW",
             "총자산": evlu + (cash or 0),
@@ -327,6 +330,12 @@ def _fetch_list_summary(pf):
             "수익률": rt,
             "당일실현손익": today_rlz,
         }
+        # 일별 스냅샷 저장 (실패해도 무시)
+        try:
+            upsert_today(PROJECT_ROOT, pf["name"], result["총자산"], today_rlz)
+        except Exception as e:
+            print(f"[snapshot] upsert 실패 ({pf['name']}): {e}")
+        return result
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -341,6 +350,89 @@ def _get_cached_summary(pf):
     if result.get("ok"):
         _summary_cache[name] = (now, result)
     return result
+
+
+def _build_chart(pf, days=30, w=300, h=56):
+    """
+    최근 `days`일 일별 스냅샷으로 SVG 차트 데이터 구성.
+    Returns: dict(area_path, line_path, bars, first_date, last_date, realized_30d) 또는 None.
+    """
+    try:
+        rows = get_recent_snapshots(PROJECT_ROOT, pf["name"], days=days)
+    except Exception:
+        return None
+    if not rows:
+        return None
+
+    assets = [(d, a) for d, a, _ in rows if a is not None]
+    if len(assets) < 2:
+        return None
+
+    n = len(rows)
+    min_a = min(a for _, a in assets)
+    max_a = max(a for _, a in assets)
+    span_a = max(max_a - min_a, 1)
+
+    realized = [(r if r is not None else 0) for _, _, r in rows]
+    max_abs_r = max((abs(r) for r in realized), default=0) or 1
+
+    def x(i):
+        return i / (n - 1) * w if n > 1 else w / 2
+
+    # 상단 70% 는 area, 하단 30% 는 bar 여유
+    area_top_pad = 4
+    area_h = h * 0.70
+    mid = h * 0.72  # bar zero line
+    bar_max_h = h - mid - 2  # 하단 공간에 맞춰
+
+    def y_area(v):
+        return area_top_pad + (1 - (v - min_a) / span_a) * (area_h - area_top_pad)
+
+    # 좌표 세그먼트 (None 구간은 끊어서)
+    segments = []
+    cur = []
+    for i, (_d, a, _r) in enumerate(rows):
+        if a is None:
+            if len(cur) >= 2:
+                segments.append(cur)
+            cur = []
+        else:
+            cur.append((x(i), y_area(a)))
+    if len(cur) >= 2:
+        segments.append(cur)
+
+    area_parts = []
+    line_parts = []
+    for seg in segments:
+        pts = " L ".join(f"{px:.1f},{py:.1f}" for px, py in seg)
+        area_parts.append(f"M {seg[0][0]:.1f},{h:.1f} L {pts} L {seg[-1][0]:.1f},{h:.1f} Z")
+        line_parts.append(f"M {pts}")
+
+    # 바: realized_pl (위=수익 녹색, 아래=손실 빨강)
+    bar_w = max(1.5, w / n * 0.55)
+    bars = []
+    for i, r in enumerate(realized):
+        if r == 0:
+            continue
+        bh = abs(r) / max_abs_r * bar_max_h
+        if bh < 1.5:
+            bh = 1.5
+        cx = x(i) - bar_w / 2
+        if r > 0:
+            bars.append({"x": cx, "y": mid - bh, "w": bar_w, "h": bh, "fill": "#34c759"})
+        else:
+            bars.append({"x": cx, "y": mid, "w": bar_w, "h": bh, "fill": "#ff3b30"})
+
+    return {
+        "area": " ".join(area_parts),
+        "line": " ".join(line_parts),
+        "bars": bars,
+        "w": w,
+        "h": h,
+        "first_date": rows[0][0],
+        "last_date": rows[-1][0],
+        "realized_30d": int(sum(realized)),
+    }
 
 
 @app.route("/")
@@ -373,8 +465,12 @@ def index():
                 total += s.get("총자산", 0) or 0
         owner_totals[owner] = total
 
+    # 포트폴리오별 30일 차트 데이터
+    charts = {pf["name"]: _build_chart(pf) for pf in portfolios}
+
     return render_template("index.html", grouped=grouped, owners=sorted_owners,
-                           summaries=summaries, owner_totals=owner_totals)
+                           summaries=summaries, owner_totals=owner_totals,
+                           charts=charts)
 
 
 @app.route("/portfolio/<name>")
