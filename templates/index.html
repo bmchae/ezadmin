@@ -82,11 +82,36 @@
         font-variant-numeric: tabular-nums;
         font-weight: 600;
     }
+    .pf-chart-body {
+        position: relative;
+    }
     .pf-chart svg {
         display: block;
         width: 100%;
         height: auto;
     }
+    .pf-chart-tooltip {
+        position: fixed;
+        pointer-events: none;
+        background: rgba(0, 0, 0, 0.88);
+        color: #fff;
+        padding: 6px 10px;
+        border-radius: 5px;
+        font-size: 13px;
+        letter-spacing: -0.08px;
+        line-height: 1.45;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+        z-index: 9999;
+        display: none;
+        transform: translate(-50%, calc(-100% - 8px));
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    }
+    .pf-chart-tooltip .tt-date { color: #d2d2d7; font-weight: 600; margin-bottom: 2px; font-size: 12px; }
+    .pf-chart-tooltip .tt-row { display: flex; gap: 10px; justify-content: space-between; }
+    .pf-chart-tooltip .tt-label { color: #a1a1a6; }
+    .pf-chart-tooltip .tt-profit { color: #34c759; }
+    .pf-chart-tooltip .tt-loss { color: #ff3b30; }
     .pf-chart-foot {
         display: flex;
         justify-content: space-between;
@@ -190,13 +215,18 @@
                                     30일 실현 {{ "+" if r30 > 0 else "" }}{{ "{:,.0f}".format(r30) }}원
                                 </span>
                             </div>
-                            <svg viewBox="0 0 {{ ch.w }} {{ ch.h }}" preserveAspectRatio="none" aria-hidden="true">
-                                <path d="{{ ch.area }}" fill="#34c759" fill-opacity="0.18"/>
-                                <path d="{{ ch.line }}" fill="none" stroke="#34c759" stroke-width="1.2" stroke-linejoin="round"/>
-                                {% for b in ch.bars %}
-                                <rect x="{{ "%.1f"|format(b.x) }}" y="{{ "%.1f"|format(b.y) }}" width="{{ "%.1f"|format(b.w) }}" height="{{ "%.1f"|format(b.h) }}" fill="{{ b.fill }}" rx="0.5"/>
-                                {% endfor %}
-                            </svg>
+                            <div class="pf-chart-body">
+                                <svg class="pf-chart-svg" viewBox="0 0 {{ ch.w }} {{ ch.h }}" preserveAspectRatio="none">
+                                    <path d="{{ ch.area }}" fill="#34c759" fill-opacity="0.18"/>
+                                    <path d="{{ ch.line }}" fill="none" stroke="#34c759" stroke-width="1.2" stroke-linejoin="round"/>
+                                    {% for b in ch.bars %}
+                                    <rect x="{{ "%.1f"|format(b.x) }}" y="{{ "%.1f"|format(b.y) }}" width="{{ "%.1f"|format(b.w) }}" height="{{ "%.1f"|format(b.h) }}" fill="{{ b.fill }}" rx="0.5"/>
+                                    {% endfor %}
+                                    <line class="pf-chart-cursor" x1="0" y1="0" x2="0" y2="{{ ch.h }}" stroke="#86868b" stroke-width="0.6" stroke-dasharray="2,2" style="display:none" vector-effect="non-scaling-stroke"/>
+                                    <circle class="pf-chart-dot" r="2.2" fill="#34c759" stroke="#fff" stroke-width="0.8" style="display:none"/>
+                                </svg>
+                                <script type="application/json" class="pf-chart-data">{{ ch.points | tojson }}</script>
+                            </div>
                             <div class="pf-chart-foot">
                                 <span>{{ ch.first_date }}</span>
                                 <span>{{ ch.last_date }}</span>
@@ -221,4 +251,104 @@
 {% if not owners %}
 <div class="alert alert-warning">포트폴리오 설정 파일을 찾을 수 없습니다.</div>
 {% endif %}
+
+<script>
+(function () {
+    const fmt = (v) => (v >= 0 ? '+' : '-') + Math.abs(Math.round(v)).toLocaleString('en-US') + '원';
+    const fmtAsset = (v) => Math.round(v).toLocaleString('en-US') + '원';
+
+    // 공유 툴팁: body 최상단에 1개만 생성해 z-index/overflow 이슈를 원천 차단
+    const tooltip = document.createElement('div');
+    tooltip.className = 'pf-chart-tooltip';
+    document.body.appendChild(tooltip);
+
+    document.querySelectorAll('.pf-chart-body').forEach(function (body) {
+        const svg = body.querySelector('svg.pf-chart-svg');
+        const dataEl = body.querySelector('.pf-chart-data');
+        const cursor = body.querySelector('.pf-chart-cursor');
+        const dot = body.querySelector('.pf-chart-dot');
+        if (!svg || !dataEl) return;
+
+        let points;
+        try { points = JSON.parse(dataEl.textContent); } catch (e) { return; }
+        if (!points || !points.length) return;
+
+        const vb = svg.viewBox.baseVal;
+        const vbW = vb.width || 300;
+
+        function nearest(vbX) {
+            let bi = 0, bd = Infinity;
+            for (let i = 0; i < points.length; i++) {
+                const d = Math.abs(points[i].x - vbX);
+                if (d < bd) { bd = d; bi = i; }
+            }
+            return bi;
+        }
+
+        function onMove(e) {
+            const rect = svg.getBoundingClientRect();
+            if (!rect.width) return;
+            const relX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+            const vbX = relX / rect.width * vbW;
+            const p = points[nearest(vbX)];
+
+            cursor.setAttribute('x1', p.x);
+            cursor.setAttribute('x2', p.x);
+            cursor.style.display = '';
+
+            if (typeof p.y === 'number') {
+                dot.setAttribute('cx', p.x);
+                dot.setAttribute('cy', p.y);
+                dot.style.display = '';
+            } else {
+                dot.style.display = 'none';
+            }
+
+            const rClass = p.realized > 0 ? 'tt-profit' : (p.realized < 0 ? 'tt-loss' : '');
+            const assetHtml = (p.asset !== null && p.asset !== undefined)
+                ? fmtAsset(p.asset) : '<span class="tt-label">-</span>';
+            tooltip.innerHTML =
+                '<div class="tt-date">' + p.date + '</div>' +
+                '<div class="tt-row"><span class="tt-label">총자산</span><span>' + assetHtml + '</span></div>' +
+                '<div class="tt-row"><span class="tt-label">실현</span><span class="' + rClass + '">' + (p.realized === 0 ? '0원' : fmt(p.realized)) + '</span></div>';
+
+            // 뷰포트 기준 위치 (position: fixed)
+            const pxX = rect.left + (p.x / vbW) * rect.width;
+            const pxY = rect.top;
+            // 좌/우 경계 클램프 (툴팁 half-width 대략치 + 8px 여백)
+            const half = 80;
+            const clampedX = Math.max(half + 4, Math.min(window.innerWidth - half - 4, pxX));
+            tooltip.style.left = clampedX + 'px';
+            tooltip.style.top = pxY + 'px';
+            tooltip.style.display = 'block';
+        }
+
+        function onLeave() {
+            cursor.style.display = 'none';
+            dot.style.display = 'none';
+            tooltip.style.display = 'none';
+        }
+
+        svg.addEventListener('mousemove', onMove);
+        svg.addEventListener('mouseleave', onLeave);
+        svg.addEventListener('touchstart', function (e) {
+            if (e.touches && e.touches[0]) {
+                onMove({ clientX: e.touches[0].clientX });
+                e.stopPropagation();
+            }
+        }, { passive: true });
+        svg.addEventListener('touchmove', function (e) {
+            if (e.touches && e.touches[0]) {
+                onMove({ clientX: e.touches[0].clientX });
+            }
+        }, { passive: true });
+        svg.addEventListener('touchend', onLeave);
+    });
+
+    // 스크롤 시 툴팁 숨김 (위치가 어긋나지 않도록)
+    window.addEventListener('scroll', function () {
+        tooltip.style.display = 'none';
+    }, { passive: true });
+})();
+</script>
 {% endblock %}

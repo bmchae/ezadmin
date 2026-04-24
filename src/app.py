@@ -441,15 +441,30 @@ def _build_chart(pf, days=30, w=300, h=56):
         else:
             bars.append({"x": cx, "y": mid, "w": bar_w, "h": bh, "fill": "#ff3b30"})
 
+    # hover 툴팁용 포인트: 일자별 (x, y, date, asset, realized)
+    points = []
+    for i, (d, a, r) in enumerate(rows):
+        pt = {
+            "x": round(x(i), 2),
+            "date": d,
+            "asset": None if a is None else float(a),
+            "realized": 0 if r is None else float(r),
+        }
+        if a is not None:
+            pt["y"] = round(y_area(a), 2)
+        points.append(pt)
+
     return {
         "area": " ".join(area_parts),
         "line": " ".join(line_parts),
         "bars": bars,
         "w": w,
         "h": h,
+        "mid": mid,
         "first_date": rows[0][0],
         "last_date": rows[-1][0],
         "realized_30d": int(sum(realized)),
+        "points": points,
     }
 
 
