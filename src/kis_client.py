@@ -527,6 +527,13 @@ def get_overseas_balance(acct_cfg, project_root, acct_config_name=""):
         exrt = float(output2[0].get("frst_bltn_exrt", 0) or 0)
 
     # output3에서 합계 추출 (올바른 필드명)
+    # - tot_asst_amt: 원화 기준 총자산 (HTS 의 "총평가자산" 과 동일)
+    # - frcr_use_psbl_amt: 외화 사용가능금액 (= 출금가능 외화예수금의 원화 환산)
+    # - tot_dncl_amt: 원화 총예수금
+    # 현금(카드에 표시할 예수금) = tot_asst_amt - evlu_amt_smtl_amt 로 역산하면
+    #   "frcr_use_psbl_amt + tot_dncl_amt" 와 일치하므로, 계좌에 실제 남은 가용 잔액이다.
+    # 기존엔 frcr_dncl_amt_2(매수증거금 포함 외화예수금잔액)을 원화로 환산해 썼기 때문에
+    # 총자산이 수천만원 단위로 부풀려져 있었다.
     summary = {}
     if output3:
         s = output3 if isinstance(output3, dict) else (output3[0] if output3 else {})
@@ -537,6 +544,16 @@ def get_overseas_balance(acct_cfg, project_root, acct_config_name=""):
         krw_pchs = float(s.get("pchs_amt_smtl_amt", 0))
         krw_evlu = float(s.get("evlu_amt_smtl_amt", 0))
         krw_pnl  = float(s.get("tot_evlu_pfls_amt", 0))
+        krw_tot  = float(s.get("tot_asst_amt", 0))
+        krw_frcr_use = float(s.get("frcr_use_psbl_amt", 0))
+        krw_dncl = float(s.get("tot_dncl_amt", 0))
+        # 원화 현금: KIS 총자산에서 원화평가금액을 뺀 값 (외화 사용가능 + KRW 예수금과 일치)
+        if krw_tot and krw_evlu:
+            krw_cash_real = krw_tot - krw_evlu
+        else:
+            krw_cash_real = krw_frcr_use + krw_dncl
+        # 외화 예수금(USD)은 "매수증거금을 제외한 실제 가용 USD" 로 보정 (없으면 기존 값 유지)
+        usd_cash_real = krw_frcr_use / exrt if (krw_frcr_use and exrt) else usd_cash
         if usd_evlu:
             summary = {
                 "총매수금액": usd_pchs,
@@ -547,9 +564,10 @@ def get_overseas_balance(acct_cfg, project_root, acct_config_name=""):
                 "원화총평가금액": krw_evlu,
                 "원화총손익금액": krw_pnl,
                 "원화총수익률": round(krw_pnl / krw_pchs * 100, 2) if krw_pchs else usd_rt,
+                "원화총자산": krw_tot,
                 "환율": exrt,
-                "외화예수금": usd_cash,
-                "원화예수금": krw_cash,
+                "외화예수금": usd_cash_real,
+                "원화예수금": krw_cash_real,
             }
 
     # output3 실패 시 holdings에서 직접 계산

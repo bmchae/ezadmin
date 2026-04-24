@@ -304,12 +304,15 @@ def _fetch_list_summary(pf):
             pnl  = summary.get("원화총손익금액") or summary.get("총손익금액") or 0
             rt   = summary.get("원화총수익률") or summary.get("총수익률") or 0
             cash = summary.get("원화예수금") or 0
+            # KIS 가 직접 제공하는 "총자산" 이 있으면 그 값을 써서 증권사 HTS 와 동일하게 맞춘다.
+            krw_tot = summary.get("원화총자산") or 0
         else:
             pchs = summary.get("총매수금액", 0) or 0
             evlu = summary.get("총평가금액", 0) or 0
             pnl  = summary.get("총손익금액", 0) or 0
             rt   = summary.get("총수익률", 0) or 0
             cash = summary.get("D+2예수금", 0) or 0
+            krw_tot = 0
 
         # 당일 실현손익: broker + market 조합별 분기
         today_rlz = None
@@ -337,7 +340,7 @@ def _fetch_list_summary(pf):
         result = {
             "ok": True,
             "통화": "KRW",
-            "총자산": evlu + (cash or 0),
+            "총자산": krw_tot or (evlu + (cash or 0)),
             "현금": cash,
             "매수금액": pchs,
             "평가금액": evlu,
