@@ -74,7 +74,7 @@ def _get_token(acct_cfg, project_root, acct_config_name="", force_new=False):
     # cfg_name: account config 파일명에서 .yaml 제거 (ezgain 방식과 동일)
     cfg_name = acct_config_name.replace(".yaml", "") if acct_config_name else acct_cfg.get("my_htsid", "unknown")
 
-    token_dir = os.path.join(project_root, "token")
+    token_dir = os.path.join(os.path.dirname(project_root), "tokens")
     os.makedirs(token_dir, exist_ok=True)
 
     if not force_new:

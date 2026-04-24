@@ -21,7 +21,7 @@ class _KWTokenExpired(Exception):
 
 
 def _token_path(project_root, cfg_name):
-    token_dir = os.path.join(project_root, "token")
+    token_dir = os.path.join(os.path.dirname(project_root), "tokens")
     os.makedirs(token_dir, exist_ok=True)
     return os.path.join(token_dir, f"KW-{cfg_name}.json")
 
