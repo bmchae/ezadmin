@@ -54,14 +54,100 @@
         background: var(--apple-divider);
         margin: 6px 0;
     }
-    .owner-total {
-        font-family: var(--apple-font-text);
-        font-size: 14px;
-        font-weight: 400;
-        letter-spacing: -0.224px;
-        color: var(--apple-text-tertiary);
-        margin-left: 6px;
+    /* ── 오너 그룹 헤더 (다크 배너 — 모든 오너 통일) ──────────── */
+    .owner-header {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 14px 20px;
+        margin: 32px 0 14px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, #2c2c2e 0%, #1c1c1e 100%);
+        border-left: 4px solid #0a84ff;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.18), 0 0 0 1px rgba(255,255,255,0.04);
+        position: relative;
+        overflow: hidden;
+        color: #f2f2f7;
+    }
+    /* 우측 큰 워터마크 이니셜 (배경 효과) */
+    .owner-header::after {
+        content: attr(data-initial);
+        position: absolute;
+        right: -6px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 96px;
+        font-weight: 800;
+        letter-spacing: -6px;
+        color: #ffffff;
+        opacity: 0.07;
+        line-height: 1;
+        pointer-events: none;
+        text-transform: uppercase;
+        font-family: var(--apple-font-display, -apple-system, system-ui);
+    }
+    .owner-avatar {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #0a84ff 0%, #0064d2 100%);
+        color: #fff;
+        display: grid;
+        place-items: center;
+        font-weight: 700;
+        font-size: 16px;
+        letter-spacing: -0.5px;
+        flex-shrink: 0;
+        text-transform: uppercase;
+        box-shadow: 0 2px 8px rgba(10,132,255,0.35);
+        z-index: 1;
+    }
+    .owner-info {
+        flex: 1;
+        min-width: 0;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .owner-name {
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: -0.022em;
+        color: #f2f2f7;
+        display: inline-flex;
+        align-items: baseline;
+        gap: 8px;
+    }
+    .owner-count {
+        font-size: 11px;
+        font-weight: 600;
+        color: #f2f2f7;
+        background: rgba(255,255,255,0.12);
+        padding: 2px 8px;
+        border-radius: 10px;
+        letter-spacing: -0.08px;
         font-variant-numeric: tabular-nums;
+        backdrop-filter: blur(4px);
+    }
+    .owner-total {
+        font-size: 19px;
+        font-weight: 700;
+        color: #30d158;       /* 밝은 녹색 — 자산 강조 */
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.022em;
+        white-space: nowrap;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    }
+    .owner-total .lbl {
+        font-size: 10px;
+        font-weight: 500;
+        color: rgba(242,242,247,0.55);
+        margin-right: 4px;
+        letter-spacing: 0;
+        text-shadow: none;
     }
     /* 30일 추이 차트 */
     .pf-chart {
@@ -131,13 +217,19 @@
 <h3 class="mb-4" style="letter-spacing: -0.022em;">포트폴리오 목록</h3>
 
 {% for owner in owners %}
-<h5 class="mt-4 mb-3 pb-2" style="border-bottom: 1px solid var(--apple-divider);">
-    {{ owner }}
-    {% set total = owner_totals.get(owner, 0) %}
-    {% if total %}
-        <span class="owner-total">({{ "{:,.0f}".format(total) }}원)</span>
-    {% endif %}
-</h5>
+{% set total = owner_totals.get(owner, 0) %}
+<div class="owner-header" data-owner="{{ owner }}" data-initial="{{ owner[:1]|upper }}">
+    <div class="owner-avatar">{{ owner[:2]|upper }}</div>
+    <div class="owner-info">
+        <div class="owner-name">
+            {{ owner }}
+            <span class="owner-count">{{ grouped[owner]|length }}개</span>
+        </div>
+        {% if total %}
+            <div class="owner-total"><span class="lbl">총자산</span>{{ "{:,.0f}".format(total) }}원</div>
+        {% endif %}
+    </div>
+</div>
 <div class="row g-3 mb-3">
 {% for pf in grouped[owner] %}
     {% set s = summaries.get(pf.name) %}

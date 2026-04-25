@@ -7,17 +7,40 @@ YAML 내용(shape)을 보고 포트폴리오 여부를 판별한다.
 import os
 import yaml
 
-EZGAIN_ROOT = os.path.expanduser("~/ez/ezgain")
+EZGAIN_ROOT   = os.path.expanduser("~/ez/ezgain")
 EZINVEST_ROOT = os.path.expanduser("~/ez/ezinvest")
-EZSPLIT_ROOT = os.path.expanduser("~/ez/ezsplit")
+EZSPLIT_ROOT  = os.path.expanduser("~/ez/ezsplit")
+EZADMIN_ROOT  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PROJECT_ROOTS = [
     ("ezgain",   EZGAIN_ROOT),
     ("ezinvest", EZINVEST_ROOT),
     ("ezsplit",  EZSPLIT_ROOT),
+    ("ezadmin",  EZADMIN_ROOT),  # ezadmin/config/ 자체에도 portfolio yaml 두기 가능
 ]
 
-KNOWN_OWNERS = ["bmchae", "hitomato", "0eh", "9bong", "hayeon"]
+# 오너 리스트는 ezadmin/config/owners.yaml 에서 로드. 파일 없으면 fallback.
+_FALLBACK_OWNERS = []
+
+
+def _load_known_owners():
+    """config/owners.yaml 의 owners 리스트를 읽는다. 실패 시 fallback."""
+    ezadmin_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(ezadmin_root, "config", "owners.yaml")
+    if not os.path.isfile(path):
+        return list(_FALLBACK_OWNERS)
+    try:
+        with open(path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        owners = cfg.get("owners") or []
+        cleaned = [str(o).strip() for o in owners if str(o).strip()]
+        return cleaned or list(_FALLBACK_OWNERS)
+    except Exception as e:
+        print(f"[owners.yaml] 로드 실패, 기본값 사용: {e}")
+        return list(_FALLBACK_OWNERS)
+
+
+KNOWN_OWNERS = _load_known_owners()
 
 KIS_PROD_URL = "https://openapi.koreainvestment.com:9443"
 KIS_VPS_URL  = "https://openapivts.koreainvestment.com:29443"

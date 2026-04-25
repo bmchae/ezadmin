@@ -226,6 +226,7 @@ __marimo__/
 #
 token/
 config/
+config/*
 docs/
 
 #
