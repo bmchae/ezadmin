@@ -545,9 +545,9 @@ def index():
     # 포트폴리오별 30일 차트 데이터
     charts = {pf["name"]: _build_chart(pf) for pf in portfolios}
 
-    # 오너별 90일 차트 데이터 (소속 포트폴리오들의 자산/실현손익 합산)
+    # 오너별 1년 차트 데이터 (소속 포트폴리오들의 자산/실현손익 합산)
     owner_charts = {
-        owner: _build_owner_chart(grouped[owner], days=90, w=720, h=80)
+        owner: _build_owner_chart(grouped[owner], days=365, w=720, h=80)
         for owner in sorted_owners
     }
 
