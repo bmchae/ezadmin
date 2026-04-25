@@ -27,21 +27,30 @@ def _read_token_file(path):
     return None
 
 
+def _token_path(token_dir, acct_cfg):
+    """
+    신규 토큰 파일 경로: kis_<account_no>.token (실전) / kis_<account_no>_vps.token (모의).
+    한 계좌에 1개 파일을 두고 만료일은 파일 내부에 기록.
+    """
+    acct = acct_cfg.get("my_acct_stock", "") or "unknown"
+    svr = acct_cfg.get("server", "prod")
+    suffix = "" if svr == "prod" else "_vps"
+    return os.path.join(token_dir, f"kis_{acct}{suffix}.token")
+
+
 def _find_existing_token(token_dir, cfg_name):
     """
-    프로젝트 token/ 디렉토리에서 cfg_name에 해당하는 유효한 토큰을 찾는다.
-    오늘 날짜 파일 우선, 없으면 같은 cfg_name의 다른 날짜 파일도 확인한다.
+    구 명명 (KIS-<cfg_name>-<YYYYMMDD>) 호환용 fallback.
+    신규 명명으로 점진 전환 — 기존 토큰은 만료될 때까지 그대로 사용한다.
     """
     today = datetime.today().strftime("%Y%m%d")
     today_file = os.path.join(token_dir, f"KIS-{cfg_name}-{today}")
 
-    # 오늘 날짜 파일 우선
     if os.path.exists(today_file):
         token = _read_token_file(today_file)
         if token:
             return token
 
-    # 같은 cfg_name의 다른 날짜 파일 확인 (최신 파일 우선)
     prefix = f"KIS-{cfg_name}-"
     if os.path.isdir(token_dir):
         candidates = sorted(
@@ -71,14 +80,21 @@ def _get_token(acct_cfg, project_root, acct_config_name="", force_new=False):
     app_key = acct_cfg["my_app"]
     app_secret = acct_cfg["my_sec"]
 
-    # cfg_name: account config 파일명에서 .yaml 제거 (ezgain 방식과 동일)
+    # cfg_name: account config 파일명에서 .yaml 제거 (구 명명 fallback 용)
     cfg_name = acct_config_name.replace(".yaml", "") if acct_config_name else acct_cfg.get("my_htsid", "unknown")
 
     token_dir = os.path.join(os.path.dirname(project_root), "tokens")
     os.makedirs(token_dir, exist_ok=True)
 
+    new_path = _token_path(token_dir, acct_cfg)
+
     if not force_new:
-        # 기존 토큰 확인
+        # 1) 신규 명명 (kis_<acct>.token) 우선
+        if os.path.exists(new_path):
+            token = _read_token_file(new_path)
+            if token:
+                return token, base_url
+        # 2) 구 명명 (KIS-<cfg_name>-<date>) fallback — 만료될 때까지 호환
         token = _find_existing_token(token_dir, cfg_name)
         if token:
             return token, base_url
@@ -104,10 +120,8 @@ def _get_token(acct_cfg, project_root, acct_config_name="", force_new=False):
     new_token = data["access_token"]
     expired = data["access_token_token_expired"]
 
-    # 토큰 저장
-    today = datetime.today().strftime("%Y%m%d")
-    token_file = os.path.join(token_dir, f"KIS-{cfg_name}-{today}")
-    with open(token_file, "w", encoding="utf-8") as f:
+    # 토큰 저장 — 신규 명명 (계좌번호 기반, 1계좌 1파일)
+    with open(new_path, "w", encoding="utf-8") as f:
         valid_date = datetime.strptime(expired, "%Y-%m-%d %H:%M:%S")
         f.write(f"token: {new_token}\n")
         f.write(f"valid-date: {valid_date}\n")

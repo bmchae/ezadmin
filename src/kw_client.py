@@ -20,10 +20,29 @@ class _KWTokenExpired(Exception):
     """Kiwoom 토큰 만료/무효를 나타내는 예외."""
 
 
-def _token_path(project_root, cfg_name):
-    token_dir = os.path.join(os.path.dirname(project_root), "tokens")
-    os.makedirs(token_dir, exist_ok=True)
-    return os.path.join(token_dir, f"KW-{cfg_name}.json")
+def _token_dir(project_root):
+    d = os.path.join(os.path.dirname(project_root), "tokens")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _token_path_new(project_root, acct_cfg):
+    """
+    신규 명명: kw_<account_no>.token (실전) / kw_<account_no>_mock.token (모의).
+    키움 계좌번호는 '3130-5086' 형식(4+4)으로 dash 만 제거해 모든 자릿수를 사용해야
+    계좌가 유일하게 식별됨 (KIS 의 8+2 와 달리 prefix 만으로는 충돌 가능).
+    """
+    raw = str(acct_cfg.get("account_no", "")) \
+          or acct_cfg.get("my_acct_stock", "") \
+          or "unknown"
+    acct = raw.replace("-", "") or "unknown"
+    suffix = "_mock" if acct_cfg.get("is_mock") else ""
+    return os.path.join(_token_dir(project_root), f"kw_{acct}{suffix}.token")
+
+
+def _token_path_legacy(project_root, cfg_name):
+    """구 명명: KW-<cfg_name>.json (호환용 fallback)."""
+    return os.path.join(_token_dir(project_root), f"KW-{cfg_name}.json")
 
 
 def _load_cached_token(path):
@@ -52,10 +71,16 @@ def _get_token(acct_cfg, project_root, acct_config_name="", force_new=False):
     """
     base_url = MOCK_URL if acct_cfg.get("is_mock") else REAL_URL
     cfg_name = acct_config_name.replace(".yaml", "") if acct_config_name else "kw"
-    path = _token_path(project_root, cfg_name)
+    new_path = _token_path_new(project_root, acct_cfg)
+    legacy_path = _token_path_legacy(project_root, cfg_name)
 
     if not force_new:
-        token = _load_cached_token(path)
+        # 1) 신규 명명 우선
+        token = _load_cached_token(new_path)
+        if token:
+            return token, base_url
+        # 2) 구 명명 fallback — 만료될 때까지 호환
+        token = _load_cached_token(legacy_path)
         if token:
             return token, base_url
 
@@ -78,7 +103,7 @@ def _get_token(acct_cfg, project_root, acct_config_name="", force_new=False):
     expires_in = int(data.get("expires_in", 86400))
     # 1시간 마진을 두고 만료 처리
     expires_at = datetime.now() + timedelta(seconds=max(expires_in - 3600, 60))
-    _save_token(path, token, expires_at)
+    _save_token(new_path, token, expires_at)
     return token, base_url
 
 
