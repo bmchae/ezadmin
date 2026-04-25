@@ -17,7 +17,7 @@ from flask import (Flask, Response, render_template, request, jsonify,
                    make_response, redirect)
 from werkzeug.security import check_password_hash
 
-from config_loader import load_all_portfolios
+from config_loader import load_all_portfolios, KNOWN_OWNERS
 from db import init_db, upsert_today, get_recent_snapshots
 from kis_client import (get_domestic_balance, get_overseas_balance,
                         get_domestic_today_realized_pl,
@@ -515,13 +515,14 @@ def _build_owner_chart(owner_pfs, days=30, w=300, h=44):
 @app.route("/")
 def index():
     portfolios = _get_portfolios()
-    owners_order = ["bmchae", "hitomato", "0eh", "9bong"]
     grouped = {}
     for pf in portfolios:
         owner = pf.get("owner", "unknown")
         grouped.setdefault(owner, []).append(pf)
-    sorted_owners = [o for o in owners_order if o in grouped]
-    sorted_owners += [o for o in grouped if o not in owners_order]
+    # 오너 정렬: config/owners.yaml 의 owners 순서 그대로.
+    # owners.yaml 에 없는 오너 (예: 'unknown') 는 끝에 이름순으로 추가.
+    sorted_owners = [o for o in KNOWN_OWNERS if o in grouped]
+    sorted_owners += sorted(o for o in grouped if o not in KNOWN_OWNERS)
 
     # 요약 병렬 조회 (TTL 캐시 적용)
     summaries = {}
@@ -541,6 +542,15 @@ def index():
             if s and s.get("ok"):
                 total += s.get("총자산", 0) or 0
         owner_totals[owner] = total
+
+    # 오너 내 포트폴리오 카드 정렬: 총자산 많은 순 (조회 실패는 0으로 → 끝)
+    def _pf_total(pf):
+        s = summaries.get(pf["name"])
+        if not (s and s.get("ok")):
+            return 0
+        return s.get("총자산", 0) or 0
+    for owner in grouped:
+        grouped[owner].sort(key=lambda p: -_pf_total(p))
 
     # 포트폴리오별 30일 차트 데이터
     charts = {pf["name"]: _build_chart(pf) for pf in portfolios}
