@@ -657,6 +657,44 @@ def get_pending_orders_overseas(acct_cfg, project_root, acct_config_name=""):
     return result
 
 
+def place_buy_order_overseas(acct_cfg, project_root, acct_config_name, stock_code, excg_cd, qty, price):
+    """
+    해외주식 지정가 매수 주문.
+    Returns: {"주문번호": str}
+    """
+    token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    acct_no = acct_cfg["my_acct_stock"]
+    prod_cd = acct_cfg["my_prod"]
+
+    svr = acct_cfg.get("server", "prod")
+    tr_id = "TTTT1002U" if svr == "prod" else "VTTT1002U"  # 매수: 1002
+
+    headers = _make_headers(token, acct_cfg["my_app"], acct_cfg["my_sec"],
+                            tr_id, acct_cfg.get("my_agent", ""))
+    body = {
+        "CANO": acct_no,
+        "ACNT_PRDT_CD": prod_cd,
+        "OVRS_EXCG_CD": excg_cd,
+        "PDNO": stock_code,
+        "ORD_DVSN": "00",           # 00=지정가
+        "ORD_QTY": str(int(qty)),
+        "OVRS_ORD_UNPR": f"{price:.2f}",
+        "ORD_SVR_DVSN_CD": "0",
+    }
+
+    res = requests.post(
+        f"{base_url}/uapi/overseas-stock/v1/trading/order",
+        data=json.dumps(body), headers=headers)
+    if res.status_code != 200:
+        raise Exception(f"매수 실패: {res.status_code} {res.text}")
+
+    data = res.json()
+    if data.get("rt_cd") != "0":
+        raise Exception(f"매수 오류: {data.get('msg_cd')} {data.get('msg1')}")
+
+    return {"주문번호": data.get("output", {}).get("ODNO", "")}
+
+
 def place_sell_order_overseas(acct_cfg, project_root, acct_config_name, stock_code, excg_cd, qty, price):
     """
     해외주식 지정가 매도 주문.
@@ -827,6 +865,42 @@ def get_pending_orders(acct_cfg, project_root, acct_config_name=""):
     return result
 
 
+def place_buy_order(acct_cfg, project_root, acct_config_name, stock_code, qty, price):
+    """
+    국내주식 지정가 매수 주문.
+    Returns: {"주문번호": str}
+    """
+    token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    acct_no = acct_cfg["my_acct_stock"]
+    prod_cd = acct_cfg["my_prod"]
+
+    svr = acct_cfg.get("server", "prod")
+    tr_id = "TTTC0802U" if svr == "prod" else "VTTC0802U"  # 매수
+
+    headers = _make_headers(token, acct_cfg["my_app"], acct_cfg["my_sec"],
+                            tr_id, acct_cfg.get("my_agent", ""))
+    body = {
+        "CANO": acct_no,
+        "ACNT_PRDT_CD": prod_cd,
+        "PDNO": stock_code,
+        "ORD_DVSN": "00",        # 00=지정가
+        "ORD_QTY": str(qty),
+        "ORD_UNPR": str(price),
+    }
+
+    res = requests.post(
+        f"{base_url}/uapi/domestic-stock/v1/trading/order-cash",
+        data=json.dumps(body), headers=headers)
+    if res.status_code != 200:
+        raise Exception(f"매수 실패: {res.status_code} {res.text}")
+
+    data = res.json()
+    if data.get("rt_cd") != "0":
+        raise Exception(f"매수 오류: {data.get('msg_cd')} {data.get('msg1')}")
+
+    return {"주문번호": data.get("output", {}).get("ODNO", "")}
+
+
 def place_sell_order(acct_cfg, project_root, acct_config_name, stock_code, qty, price):
     """
     국내주식 지정가 매도 주문.
@@ -902,6 +976,229 @@ _EXCG_CD_MAP = {
     "HASE": "HSX",
     "VNSE": "HNX",
 }
+
+
+def get_orderbook_domestic(acct_cfg, project_root, acct_config_name, stock_code):
+    """
+    국내주식 10단계 호가 + 현재가 조회 (TR: FHKST01010200).
+    Returns: {
+        "current": int,            # 현재가
+        "change": int,             # 전일대비
+        "change_rate": float,      # 전일대비율(%)
+        "open": int, "high": int, "low": int,
+        "asks": [(price:int, qty:int), x10],   # 매도호가 1~10 (낮은가격순)
+        "bids": [(price:int, qty:int), x10],   # 매수호가 1~10 (높은가격순)
+    }
+    """
+    token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    headers = _make_headers(token, acct_cfg["my_app"], acct_cfg["my_sec"],
+                            "FHKST01010200", acct_cfg.get("my_agent", ""))
+    params = {
+        "FID_COND_MRKT_DIV_CODE": "J",
+        "FID_INPUT_ISCD": stock_code,
+    }
+    res = requests.get(
+        f"{base_url}/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn",
+        headers=headers, params=params)
+    if res.status_code != 200:
+        raise Exception(f"호가 조회 실패: {res.status_code} {res.text}")
+    data = res.json()
+    if data.get("rt_cd") != "0":
+        raise Exception(f"호가 조회 오류: {data.get('msg_cd')} {data.get('msg1')}")
+
+    o1 = data.get("output1", {}) or {}
+    o2 = data.get("output2", {}) or {}
+
+    def _i(v):
+        try:
+            return int(v or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    asks = [(_i(o1.get(f"askp{i}")), _i(o1.get(f"askp_rsqn{i}"))) for i in range(1, 11)]
+    bids = [(_i(o1.get(f"bidp{i}")), _i(o1.get(f"bidp_rsqn{i}"))) for i in range(1, 11)]
+
+    # output2 에 현재가가 없으면 output1 사용
+    current = _i(o2.get("stck_prpr") or o1.get("stck_prpr"))
+    change = _i(o2.get("prdy_vrss") or o1.get("prdy_vrss"))
+    try:
+        change_rate = float(o2.get("prdy_ctrt") or o1.get("prdy_ctrt") or 0)
+    except (TypeError, ValueError):
+        change_rate = 0.0
+
+    return {
+        "current": current,
+        "change": change,
+        "change_rate": change_rate,
+        "open": _i(o2.get("stck_oprc") or o1.get("stck_oprc")),
+        "high": _i(o2.get("stck_hgpr") or o1.get("stck_hgpr")),
+        "low": _i(o2.get("stck_lwpr") or o1.get("stck_lwpr")),
+        "asks": asks,
+        "bids": bids,
+    }
+
+
+def get_orderbook_overseas(acct_cfg, project_root, acct_config_name, stock_code, excg_cd):
+    """
+    해외주식 현재가 + 1단계 호가 조회 (TR: HHDFS76200200).
+    KIS 해외는 다단계 호가 공식 오픈 API 가 제한적이라 top1 만 제공.
+    Returns: {
+        "current": float, "change": float, "change_rate": float,
+        "open": float, "high": float, "low": float,
+        "asks": [(price:float, qty:int)],   # 1개 (top ask)
+        "bids": [(price:float, qty:int)],   # 1개 (top bid)
+    }
+    """
+    token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    headers = _make_headers(token, acct_cfg["my_app"], acct_cfg["my_sec"],
+                            "HHDFS76200200", acct_cfg.get("my_agent", ""))
+    excd = _EXCG_CD_MAP.get(excg_cd.upper(), excg_cd)
+    params = {"AUTH": "", "EXCD": excd, "SYMB": stock_code}
+    res = requests.get(
+        f"{base_url}/uapi/overseas-price/v1/quotations/price-detail",
+        headers=headers, params=params)
+    if res.status_code != 200:
+        raise Exception(f"호가 조회 실패: {res.status_code} {res.text}")
+    data = res.json()
+    if data.get("rt_cd") != "0":
+        raise Exception(f"호가 조회 오류: {data.get('msg_cd')} {data.get('msg1')}")
+    o = data.get("output", {}) or {}
+
+    def _f(v):
+        try:
+            return float(v or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _i(v):
+        try:
+            return int(v or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    last = _f(o.get("last"))
+    askp = _f(o.get("askp"))
+    bidp = _f(o.get("bidp"))
+    return {
+        "current": last,
+        "change": _f(o.get("diff")),
+        "change_rate": _f(o.get("rate")),
+        "open": _f(o.get("open")),
+        "high": _f(o.get("high")),
+        "low": _f(o.get("low")),
+        "asks": [(askp or last, _i(o.get("pvol")))] if askp or last else [],
+        "bids": [(bidp or last, _i(o.get("pvol")))] if bidp or last else [],
+    }
+
+
+def get_daily_chart_domestic(acct_cfg, project_root, acct_config_name, stock_code, days=120):
+    """
+    국내주식 일봉 히스토리 (TR: FHKST03010100).
+    Returns: list[dict(date, open, high, low, close, volume)] (오래된→최신 순)
+    """
+    token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    headers = _make_headers(token, acct_cfg["my_app"], acct_cfg["my_sec"],
+                            "FHKST03010100", acct_cfg.get("my_agent", ""))
+    end = datetime.now().strftime("%Y%m%d")
+    start = (datetime.now() - timedelta(days=days * 2)).strftime("%Y%m%d")
+    params = {
+        "FID_COND_MRKT_DIV_CODE": "J",
+        "FID_INPUT_ISCD": stock_code,
+        "FID_INPUT_DATE_1": start,
+        "FID_INPUT_DATE_2": end,
+        "FID_PERIOD_DIV_CODE": "D",
+        "FID_ORG_ADJ_PRC": "0",  # 0=수정주가 반영
+    }
+    res = requests.get(
+        f"{base_url}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
+        headers=headers, params=params)
+    if res.status_code != 200:
+        raise Exception(f"일봉 조회 실패: {res.status_code} {res.text}")
+    data = res.json()
+    if data.get("rt_cd") != "0":
+        raise Exception(f"일봉 조회 오류: {data.get('msg_cd')} {data.get('msg1')}")
+
+    rows = data.get("output2", []) or []
+
+    def _i(v):
+        try:
+            return int(v or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    out = []
+    for r in rows:
+        date = r.get("stck_bsop_date", "")
+        if not date:
+            continue
+        out.append({
+            "date": f"{date[:4]}-{date[4:6]}-{date[6:8]}",
+            "open": _i(r.get("stck_oprc")),
+            "high": _i(r.get("stck_hgpr")),
+            "low":  _i(r.get("stck_lwpr")),
+            "close": _i(r.get("stck_clpr")),
+            "volume": _i(r.get("acml_vol")),
+        })
+    out.sort(key=lambda x: x["date"])  # 오래된 → 최신
+    return out[-days:]
+
+
+def get_daily_chart_overseas(acct_cfg, project_root, acct_config_name, stock_code, excg_cd, days=120):
+    """
+    해외주식 일봉 히스토리 (TR: HHDFS76240000).
+    Returns: list[dict(date, open, high, low, close, volume)] (오래된→최신 순)
+    """
+    token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    headers = _make_headers(token, acct_cfg["my_app"], acct_cfg["my_sec"],
+                            "HHDFS76240000", acct_cfg.get("my_agent", ""))
+    excd = _EXCG_CD_MAP.get(excg_cd.upper(), excg_cd)
+    end = datetime.now().strftime("%Y%m%d")
+    params = {
+        "AUTH": "",
+        "EXCD": excd,
+        "SYMB": stock_code,
+        "GUBN": "0",         # 0=일, 1=주, 2=월
+        "BYMD": end,
+        "MODP": "1",         # 1=수정주가
+    }
+    res = requests.get(
+        f"{base_url}/uapi/overseas-price/v1/quotations/dailyprice",
+        headers=headers, params=params)
+    if res.status_code != 200:
+        raise Exception(f"일봉 조회 실패: {res.status_code} {res.text}")
+    data = res.json()
+    if data.get("rt_cd") != "0":
+        raise Exception(f"일봉 조회 오류: {data.get('msg_cd')} {data.get('msg1')}")
+
+    rows = data.get("output2", []) or []
+
+    def _f(v):
+        try:
+            return float(v or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _i(v):
+        try:
+            return int(float(v or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    out = []
+    for r in rows:
+        date = r.get("xymd", "")
+        if not date:
+            continue
+        out.append({
+            "date": f"{date[:4]}-{date[4:6]}-{date[6:8]}",
+            "open": _f(r.get("open")),
+            "high": _f(r.get("high")),
+            "low":  _f(r.get("low")),
+            "close": _f(r.get("clos")),
+            "volume": _i(r.get("tvol")),
+        })
+    out.sort(key=lambda x: x["date"])
+    return out[-days:]
 
 
 def get_ask_price_overseas(acct_cfg, project_root, acct_config_name, stock_code, excg_cd):

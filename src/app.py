@@ -23,8 +23,11 @@ from kis_client import (get_domestic_balance, get_overseas_balance,
                         get_domestic_today_realized_pl,
                         get_overseas_today_realized_pl,
                         get_pending_orders, get_pending_orders_overseas,
+                        place_buy_order, place_buy_order_overseas,
                         place_sell_order, place_sell_order_overseas,
                         get_ask_price_domestic, get_ask_price_overseas,
+                        get_orderbook_domestic, get_orderbook_overseas,
+                        get_daily_chart_domestic, get_daily_chart_overseas,
                         cancel_order, cancel_order_overseas)
 import kw_client
 import upbit_client
@@ -652,6 +655,94 @@ def get_askprice(name):
         else:
             price = get_ask_price_domestic(pf["account_cfg"], pf["project_root"], acct_name, code)
         return jsonify({"ok": True, "price": price})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@app.route("/portfolio/<name>/buy", methods=["POST"])
+def buy_order(name):
+    portfolios = _get_portfolios()
+    pf = next((p for p in portfolios if p["name"] == name), None)
+    if pf is None:
+        return jsonify({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
+    if pf.get("broker") != "kis":
+        return jsonify({"ok": False, "error": "매수는 KIS 계좌만 지원합니다."})
+
+    body = request.get_json() or {}
+    code = body.get("code", "")
+    qty = int(body.get("qty", 0))
+    price = float(body.get("price", 0))
+    if not code or qty <= 0 or price <= 0:
+        return jsonify({"ok": False, "error": "종목코드, 수량, 가격을 확인해주세요."})
+
+    try:
+        acct_name = pf.get("account_config_name", "")
+        if pf["market"] == "us":
+            excg_cd = body.get("excg_cd", "")
+            result = place_buy_order_overseas(pf["account_cfg"], pf["project_root"], acct_name,
+                                              code, excg_cd, qty, price)
+        else:
+            result = place_buy_order(pf["account_cfg"], pf["project_root"], acct_name,
+                                     code, qty, int(price))
+        return jsonify({"ok": True, "order_no": result.get("주문번호", "")})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@app.route("/portfolio/<name>/orderbook")
+def get_orderbook(name):
+    portfolios = _get_portfolios()
+    pf = next((p for p in portfolios if p["name"] == name), None)
+    if pf is None:
+        return jsonify({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
+    if pf.get("broker") != "kis":
+        return jsonify({"ok": False, "error": "호가 조회는 KIS 계좌만 지원합니다."})
+
+    code = request.args.get("code", "")
+    excg_cd = request.args.get("excg_cd", "")
+    if not code:
+        return jsonify({"ok": False, "error": "종목코드 필요"})
+
+    try:
+        acct_name = pf.get("account_config_name", "")
+        if pf["market"] == "us":
+            data = get_orderbook_overseas(pf["account_cfg"], pf["project_root"], acct_name, code, excg_cd)
+        else:
+            data = get_orderbook_domestic(pf["account_cfg"], pf["project_root"], acct_name, code)
+        return jsonify({"ok": True, "data": data, "market": pf["market"]})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@app.route("/portfolio/<name>/chart")
+def get_chart(name):
+    portfolios = _get_portfolios()
+    pf = next((p for p in portfolios if p["name"] == name), None)
+    if pf is None:
+        return jsonify({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
+    if pf.get("broker") != "kis":
+        return jsonify({"ok": False, "error": "차트 조회는 KIS 계좌만 지원합니다."})
+
+    code = request.args.get("code", "")
+    excg_cd = request.args.get("excg_cd", "")
+    try:
+        days = int(request.args.get("days", 120))
+    except ValueError:
+        days = 120
+    if not code:
+        return jsonify({"ok": False, "error": "종목코드 필요"})
+
+    try:
+        acct_name = pf.get("account_config_name", "")
+        if pf["market"] == "us":
+            candles = get_daily_chart_overseas(pf["account_cfg"], pf["project_root"], acct_name,
+                                                code, excg_cd, days=days)
+        else:
+            candles = get_daily_chart_domestic(pf["account_cfg"], pf["project_root"], acct_name,
+                                                code, days=days)
+        return jsonify({"ok": True, "candles": candles, "market": pf["market"]})
     except Exception as e:
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)})

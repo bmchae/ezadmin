@@ -12,7 +12,112 @@
     .pf-detail .fs-5 { font-size: 18px !important; letter-spacing: -0.022em; font-weight: 600; }
     .pf-detail .btn-sm { font-size: 11px; letter-spacing: -0.12px; padding: 3px 8px; }
     .pf-detail .badge { font-size: 10px; padding: 3px 8px; letter-spacing: -0.08px; }
+
+    /* 종목 행 드로어 (클릭시 펼침) */
+    .stock-row.is-kis { cursor: pointer; }
+    .stock-row.is-kis:hover { background: rgba(13,110,253,0.04); }
+    .stock-row.is-expanded { background: rgba(13,110,253,0.07) !important; }
+    .stock-drawer td { padding: 0 !important; background: var(--apple-bg-card, #fafafa); }
+    .stock-drawer-inner {
+        display: grid;
+        /* 호가(1.5) + 주문(1.5) = 3 : 차트 7 = 3:7 */
+        grid-template-columns: 1.5fr 1.5fr 7fr;
+        gap: 14px;
+        padding: 14px 16px;
+        border-top: 2px solid rgba(13,110,253,0.3);
+        border-bottom: 1px solid rgba(0,0,0,0.08);
+    }
+    @media (max-width: 1100px) {
+        .stock-drawer-inner { grid-template-columns: 1fr 1fr; }
+        .drawer-right { grid-column: 1 / -1; }
+    }
+    @media (max-width: 700px) {
+        .stock-drawer-inner { grid-template-columns: 1fr; }
+        .drawer-right { grid-column: auto; }
+    }
+    .drawer-head {
+        display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;
+    }
+    .drawer-head .name { font-size: 15px; font-weight: 600; letter-spacing: -0.224px; }
+    .drawer-head .code { color: var(--apple-text-tertiary); font-size: 11px; font-variant-numeric: tabular-nums; }
+    .drawer-price { font-size: 22px; font-weight: 700; letter-spacing: -0.022em; font-variant-numeric: tabular-nums; }
+    .drawer-change { font-size: 12px; font-variant-numeric: tabular-nums; }
+    .drawer-change.up { color: #e74c3c; }
+    .drawer-change.down { color: #0d6efd; }
+    .drawer-ohlc { font-size: 11px; color: var(--apple-text-tertiary); margin-top: 2px; }
+    .drawer-ohlc span { margin-right: 8px; }
+
+    /* 호가판 */
+    .orderbook { font-size: 11px; font-variant-numeric: tabular-nums; margin-top: 8px; }
+    .orderbook-row {
+        display: grid;
+        grid-template-columns: 1fr 90px 1fr;
+        gap: 6px;
+        padding: 2px 4px;
+        border-bottom: 1px solid rgba(0,0,0,0.03);
+    }
+    .orderbook-row .qty { text-align: right; color: var(--apple-text-secondary); }
+    .orderbook-row .price-mid {
+        text-align: center; font-weight: 500;
+        cursor: pointer; user-select: none;
+        transition: filter 0.1s, transform 0.05s;
+    }
+    .orderbook-row .price-mid:hover { filter: brightness(0.92); }
+    .orderbook-row .price-mid:active { transform: scale(0.97); }
+    .orderbook-row.ask .price-mid { color: #0d6efd; background: rgba(13,110,253,0.05); }
+    .orderbook-row.bid .price-mid { color: #e74c3c; background: rgba(231,76,60,0.05); }
+
+    /* 주문 탭 */
+    .order-tabs { display: flex; gap: 0; border-bottom: 1px solid rgba(0,0,0,0.1); margin-bottom: 12px; }
+    .order-tab {
+        flex: 1; padding: 8px 12px; text-align: center; cursor: pointer;
+        font-size: 12px; font-weight: 500; letter-spacing: -0.08px;
+        color: var(--apple-text-tertiary); border: none; background: transparent;
+    }
+    .order-tab.active {
+        color: var(--apple-text-primary);
+        border-bottom: 2px solid #e74c3c;
+        margin-bottom: -1px;
+    }
+    .order-tab[data-tab="buy"].active { border-bottom-color: #e74c3c; }
+    .order-tab[data-tab="sell"].active { border-bottom-color: #0d6efd; }
+    .order-tab[data-tab="cancel"].active { border-bottom-color: #6c757d; }
+    .order-form { display: none; }
+    .order-form.active { display: block; }
+    .order-form label { font-size: 11px; color: var(--apple-text-tertiary); margin-bottom: 2px; display: block; }
+    .order-form input { font-size: 13px; font-variant-numeric: tabular-nums; }
+    .order-form .form-control { margin-bottom: 8px; }
+    .order-form .amount {
+        font-size: 11px; color: var(--apple-text-secondary); margin-bottom: 10px;
+        font-variant-numeric: tabular-nums;
+    }
+    .btn-buy  { background: #e74c3c; border-color: #e74c3c; color: #fff; }
+    .btn-buy:hover  { background: #c0392b; border-color: #c0392b; color: #fff; }
+    .btn-sell { background: #0d6efd; border-color: #0d6efd; color: #fff; }
+    .btn-sell:hover { background: #0b5ed7; border-color: #0b5ed7; color: #fff; }
+
+    /* 차트 */
+    .drawer-chart-wrap { position: relative; min-height: 320px; }
+    .drawer-chart { width: 100%; height: 320px; }
+    .drawer-chart-msg {
+        position: absolute; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        color: var(--apple-text-tertiary); font-size: 11px;
+    }
+
+    /* 취소 목록 */
+    .cancel-list { max-height: 200px; overflow-y: auto; }
+    .cancel-list .item {
+        display: grid; grid-template-columns: 1fr auto;
+        gap: 6px; padding: 6px 8px; border: 1px solid rgba(0,0,0,0.08);
+        border-radius: 4px; margin-bottom: 6px; font-size: 11px;
+    }
+    .cancel-list .empty {
+        text-align: center; color: var(--apple-text-tertiary);
+        padding: 20px 0; font-size: 11px;
+    }
 </style>
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <div class="pf-detail">
 
 <a href="/" class="btn-pill mb-3">&larr; 목록으로</a>
@@ -285,7 +390,12 @@
     </thead>
     <tbody>
     {% for h in holdings %}
-        <tr>
+        <tr class="stock-row {{ 'is-kis' if pf.broker == 'kis' else '' }}"
+            data-code="{{ h['종목코드'] }}"
+            data-name="{{ h['종목명'] }}"
+            data-qty="{{ h['보유수량']|int }}"
+            data-avgp="{{ h['매수평균가'] }}"
+            data-excg="{{ h.get('거래소코드', '') }}">
             <td>{{ loop.index }}</td>
             <td><code>{{ h['종목코드'] }}</code></td>
             <td>{{ h['종목명'] }}</td>
@@ -360,6 +470,59 @@
             </td>
         </tr>
     {% endfor %}
+        {# 공유 drawer: JS로 클릭된 행 뒤로 이동 #}
+        <tr id="stock-drawer" class="stock-drawer" style="display:none">
+            <td colspan="14">
+                <div class="stock-drawer-inner">
+                    <div class="drawer-left">
+                        <div class="drawer-head">
+                            <span class="name" id="dw-name">-</span>
+                            <span class="code" id="dw-code">-</span>
+                        </div>
+                        <div class="drawer-price" id="dw-price">-</div>
+                        <div class="drawer-change" id="dw-change">-</div>
+                        <div class="drawer-ohlc" id="dw-ohlc"></div>
+                        <div class="orderbook" id="dw-orderbook">
+                            <div class="text-muted small text-center py-3">호가 불러오는 중…</div>
+                        </div>
+                    </div>
+                    <div class="drawer-mid">
+                        <div class="order-tabs">
+                            <button class="order-tab active" data-tab="buy">매수</button>
+                            <button class="order-tab" data-tab="sell">매도</button>
+                            <button class="order-tab" data-tab="cancel">정정/취소</button>
+                        </div>
+                        <div class="order-form active" data-form="buy">
+                            <label>수량</label>
+                            <input type="number" min="0" step="1" class="form-control form-control-sm" id="buy-qty" placeholder="0">
+                            <label>가격</label>
+                            <input type="number" min="0" step="any" class="form-control form-control-sm" id="buy-price" placeholder="0">
+                            <div class="amount" id="buy-amount">주문금액: -</div>
+                            <button class="btn btn-buy btn-sm w-100" id="btn-buy">매수 주문</button>
+                        </div>
+                        <div class="order-form" data-form="sell">
+                            <label>수량 <span id="sell-holding" class="text-muted">(보유: -)</span></label>
+                            <input type="number" min="0" step="1" class="form-control form-control-sm" id="sell-qty" placeholder="0">
+                            <label>가격</label>
+                            <input type="number" min="0" step="any" class="form-control form-control-sm" id="sell-price" placeholder="0">
+                            <div class="amount" id="sell-amount">주문금액: -</div>
+                            <button class="btn btn-sell btn-sm w-100" id="btn-sell">매도 주문</button>
+                        </div>
+                        <div class="order-form" data-form="cancel">
+                            <div class="cancel-list" id="cancel-list">
+                                <div class="empty">미체결 주문이 없습니다.</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="drawer-right">
+                        <div class="drawer-chart-wrap">
+                            <div class="drawer-chart" id="dw-chart"></div>
+                            <div class="drawer-chart-msg" id="dw-chart-msg">차트 불러오는 중…</div>
+                        </div>
+                    </div>
+                </div>
+            </td>
+        </tr>
     </tbody>
 </table>
 </div>
@@ -371,6 +534,22 @@
 <script>
 const pfName = {{ pf.name | tojson }};
 const isUsd = {{ 'true' if currency == 'USD' else 'false' }};
+const pfBroker = {{ pf.broker | tojson }};
+
+// 종목코드 → 미체결 주문 배열 (취소 탭에서 사용)
+const pendingByCode = {};
+{% for po in pending_orders %}
+(pendingByCode[{{ po['종목코드'] | tojson }}] ||= []).push({
+    order_no: {{ po.get('주문번호', '') | tojson }},
+    code: {{ po['종목코드'] | tojson }},
+    name: {{ po.get('종목명', '') | tojson }},
+    type: {{ po.get('주문구분', '') | tojson }},
+    qty: {{ po.get('주문수량', 0)|int }},
+    price: {{ po.get('주문단가', 0) }},
+    excg_cd: {{ po.get('거래소코드', '') | tojson }},
+    krx_orgno: {{ po.get('한국거래소전송주문조직번호', '') | tojson }},
+});
+{% endfor %}
 
 // 미체결 매도 없는 종목 목록 (헤더 일괄 매도용)
 const availableHoldings = [
@@ -443,6 +622,341 @@ function cancelOrder(code, name, orderNo, qty, price, excgCd, krxOrgno, btn) {
         btn.textContent = '매도 / ' + (isUsd ? price.toFixed(2) : price.toLocaleString()) + ' / ' + qty;
     });
 }
+
+// ─────────────────────────────────────────────────
+// 종목 드로어 (클릭 확장)
+// ─────────────────────────────────────────────────
+(function () {
+    if (pfBroker !== 'kis') return;  // KIS 만 지원
+
+    const drawer = document.getElementById('stock-drawer');
+    if (!drawer) return;
+
+    const pfMarket = {{ pf.market | tojson }};
+
+    let currentRow = null;      // 현재 펼쳐진 행
+    let chart = null, candleSeries = null, volumeSeries = null;
+    let chartKey = '';          // code+excg, 동일 종목 재오픈 시 재fetch 생략
+
+    const fmt = (v) => isUsd
+        ? '$' + Number(v || 0).toFixed(2)
+        : Math.round(v || 0).toLocaleString('ko-KR') + '원';
+    const fmtQty = (v) => isUsd
+        ? Number(v).toFixed(4).replace(/\.?0+$/, '')
+        : Math.round(v).toLocaleString('ko-KR');
+
+    function updateAmount(formKey) {
+        const q = parseFloat(document.getElementById(formKey + '-qty').value) || 0;
+        const p = parseFloat(document.getElementById(formKey + '-price').value) || 0;
+        document.getElementById(formKey + '-amount').textContent = '주문금액: ' + fmt(q * p);
+    }
+    ['buy', 'sell'].forEach(k => {
+        ['qty', 'price'].forEach(f => {
+            const el = document.getElementById(k + '-' + f);
+            if (el) el.addEventListener('input', () => updateAmount(k));
+        });
+    });
+
+    // 탭 전환
+    drawer.querySelectorAll('.order-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tab = btn.dataset.tab;
+            drawer.querySelectorAll('.order-tab').forEach(b => b.classList.toggle('active', b === btn));
+            drawer.querySelectorAll('.order-form').forEach(f => {
+                f.classList.toggle('active', f.dataset.form === tab);
+            });
+        });
+    });
+
+    function closeDrawer() {
+        if (currentRow) currentRow.classList.remove('is-expanded');
+        drawer.style.display = 'none';
+        currentRow = null;
+        chartKey = '';
+    }
+
+    function renderOrderbook(ob, market) {
+        const el = document.getElementById('dw-orderbook');
+        if (!ob) { el.innerHTML = '<div class="text-muted small text-center py-3">호가 없음</div>'; return; }
+
+        // 5매도호가(askp5→askp1, 위가 높은 가격) + 5매수호가(bidp1→bidp5, 아래로 갈수록 낮은 가격)
+        const asks = [...(ob.asks || []).slice(0, 5)].reverse();
+        const bids = (ob.bids || []).slice(0, 5);
+        const priceFmt = (p) => market === 'us' ? Number(p).toFixed(2) : Math.round(p).toLocaleString('ko-KR');
+        const priceVal = (p) => market === 'us' ? Number(p).toFixed(2) : String(Math.round(p));
+
+        let html = '';
+        for (const [p, q] of asks) {
+            if (!p) continue;
+            html += `<div class="orderbook-row ask"><span></span><span class="price-mid" data-price="${priceVal(p)}" title="가격 적용">${priceFmt(p)}</span><span class="qty">${q.toLocaleString()}</span></div>`;
+        }
+        for (const [p, q] of bids) {
+            if (!p) continue;
+            html += `<div class="orderbook-row bid"><span class="qty">${q.toLocaleString()}</span><span class="price-mid" data-price="${priceVal(p)}" title="가격 적용">${priceFmt(p)}</span><span></span></div>`;
+        }
+        el.innerHTML = html || '<div class="text-muted small text-center py-3">호가 없음</div>';
+
+        // 호가 가격 클릭 → 활성 탭의 가격 input 에 적용
+        el.querySelectorAll('.price-mid[data-price]').forEach(span => {
+            span.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const v = span.dataset.price;
+                const activeTab = drawer.querySelector('.order-tab.active')?.dataset.tab;
+                if (activeTab === 'sell') {
+                    document.getElementById('sell-price').value = v;
+                    updateAmount('sell');
+                } else if (activeTab === 'buy') {
+                    document.getElementById('buy-price').value = v;
+                    updateAmount('buy');
+                } else {
+                    // 정정/취소 탭일 땐 buy/sell 양쪽에 모두 채워둔다
+                    document.getElementById('buy-price').value = v;
+                    document.getElementById('sell-price').value = v;
+                    updateAmount('buy'); updateAmount('sell');
+                }
+            });
+        });
+    }
+
+    function renderHeader(ob, name, code, market) {
+        document.getElementById('dw-name').textContent = name;
+        document.getElementById('dw-code').textContent = code;
+        const priceStr = market === 'us'
+            ? '$' + Number(ob.current || 0).toFixed(2)
+            : Math.round(ob.current || 0).toLocaleString('ko-KR');
+        document.getElementById('dw-price').textContent = priceStr;
+
+        const chEl = document.getElementById('dw-change');
+        const ch = Number(ob.change || 0);
+        const rate = Number(ob.change_rate || 0);
+        chEl.className = 'drawer-change ' + (ch > 0 ? 'up' : ch < 0 ? 'down' : '');
+        const sign = ch > 0 ? '+' : '';
+        chEl.textContent = ch === 0 ? '보합' :
+            (sign + (market === 'us' ? ch.toFixed(2) : Math.round(ch).toLocaleString('ko-KR'))
+             + ' (' + sign + rate.toFixed(2) + '%)');
+
+        const ohlcEl = document.getElementById('dw-ohlc');
+        const f = (v) => market === 'us' ? Number(v).toFixed(2) : Math.round(v).toLocaleString('ko-KR');
+        ohlcEl.innerHTML = `<span>시 ${f(ob.open)}</span><span>고 ${f(ob.high)}</span><span>저 ${f(ob.low)}</span>`;
+    }
+
+    function renderCancelList(code) {
+        const list = pendingByCode[code] || [];
+        const el = document.getElementById('cancel-list');
+        if (list.length === 0) {
+            el.innerHTML = '<div class="empty">미체결 주문이 없습니다.</div>';
+            return;
+        }
+        el.innerHTML = list.map((po, idx) => {
+            const priceStr = isUsd ? '$' + Number(po.price).toFixed(2)
+                                    : Math.round(po.price).toLocaleString('ko-KR');
+            const typeColor = po.type === '매수' ? 'text-danger' : 'text-primary';
+            return `<div class="item">
+                <div>
+                    <div><span class="${typeColor}" style="font-weight:600">${po.type}</span> ${priceStr} × ${po.qty}주</div>
+                    <div class="text-muted" style="font-size:10px">주문번호 ${po.order_no}</div>
+                </div>
+                <button class="btn btn-outline-secondary btn-sm" data-cancel-idx="${idx}">취소</button>
+            </div>`;
+        }).join('');
+        // 취소 버튼 핸들러
+        el.querySelectorAll('[data-cancel-idx]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const po = list[parseInt(btn.dataset.cancelIdx)];
+                submitCancel(po, btn);
+            });
+        });
+    }
+
+    async function loadChart(code, excg, market) {
+        const msgEl = document.getElementById('dw-chart-msg');
+        const wrap = document.getElementById('dw-chart');
+        msgEl.textContent = '차트 불러오는 중…';
+        msgEl.style.display = '';
+
+        try {
+            const params = new URLSearchParams({ code, excg_cd: excg || '', days: 120 });
+            const res = await fetch('/portfolio/' + pfName + '/chart?' + params).then(r => r.json());
+            if (!res.ok) throw new Error(res.error || '차트 실패');
+            const candles = (res.candles || []).filter(c => c.close > 0);
+            if (candles.length === 0) {
+                msgEl.textContent = '차트 데이터가 없습니다.';
+                return;
+            }
+            // 차트 재생성 (종목 바뀔 때마다 새로)
+            if (chart) { chart.remove(); chart = null; }
+            wrap.innerHTML = '';
+            chart = LightweightCharts.createChart(wrap, {
+                width: wrap.clientWidth,
+                height: 320,
+                layout: { background: { color: 'transparent' }, textColor: '#444' },
+                grid: {
+                    vertLines: { color: 'rgba(0,0,0,0.04)' },
+                    horzLines: { color: 'rgba(0,0,0,0.04)' },
+                },
+                timeScale: { borderColor: 'rgba(0,0,0,0.1)', timeVisible: false },
+                rightPriceScale: { borderColor: 'rgba(0,0,0,0.1)' },
+                crosshair: { mode: 0 },
+            });
+            candleSeries = chart.addCandlestickSeries({
+                upColor: '#e74c3c', downColor: '#0d6efd',
+                borderUpColor: '#e74c3c', borderDownColor: '#0d6efd',
+                wickUpColor: '#e74c3c', wickDownColor: '#0d6efd',
+            });
+            candleSeries.setData(candles.map(c => ({
+                time: c.date, open: c.open, high: c.high, low: c.low, close: c.close
+            })));
+
+            volumeSeries = chart.addHistogramSeries({
+                priceFormat: { type: 'volume' },
+                priceScaleId: '',
+                scaleMargins: { top: 0.8, bottom: 0 },
+            });
+            volumeSeries.setData(candles.map(c => ({
+                time: c.date,
+                value: c.volume,
+                color: c.close >= c.open ? 'rgba(231,76,60,0.4)' : 'rgba(13,110,253,0.4)',
+            })));
+
+            chart.timeScale().fitContent();
+            msgEl.style.display = 'none';
+
+            // 폭 변경 대응
+            const ro = new ResizeObserver(() => {
+                if (chart) chart.applyOptions({ width: wrap.clientWidth });
+            });
+            ro.observe(wrap);
+        } catch (e) {
+            msgEl.textContent = '차트 오류: ' + e.message;
+        }
+    }
+
+    async function loadOrderbook(code, excg, name) {
+        const params = new URLSearchParams({ code, excg_cd: excg || '' });
+        try {
+            const res = await fetch('/portfolio/' + pfName + '/orderbook?' + params).then(r => r.json());
+            if (!res.ok) throw new Error(res.error || '호가 실패');
+            renderHeader(res.data, name, code, res.market);
+            renderOrderbook(res.data, res.market);
+            // 가격 프리필: 매수=매도1호가(없으면 현재가), 매도=매수1호가(없으면 현재가)
+            const askTop = (res.data.asks && res.data.asks[0] && res.data.asks[0][0]) || res.data.current || 0;
+            const bidTop = (res.data.bids && res.data.bids[0] && res.data.bids[0][0]) || res.data.current || 0;
+            document.getElementById('buy-price').value = res.market === 'us' ? askTop.toFixed(2) : askTop;
+            document.getElementById('sell-price').value = res.market === 'us' ? bidTop.toFixed(2) : bidTop;
+            updateAmount('buy'); updateAmount('sell');
+        } catch (e) {
+            document.getElementById('dw-orderbook').innerHTML =
+                '<div class="text-danger small text-center py-3">호가 오류: ' + e.message + '</div>';
+        }
+    }
+
+    async function submitOrder(kind) {
+        if (!currentRow) return;
+        const code = currentRow.dataset.code;
+        const name = currentRow.dataset.name;
+        const excg = currentRow.dataset.excg || '';
+        const qtyEl = document.getElementById(kind + '-qty');
+        const priceEl = document.getElementById(kind + '-price');
+        const qty = parseInt(qtyEl.value);
+        const price = parseFloat(priceEl.value);
+
+        if (!qty || qty <= 0 || !price || price <= 0) {
+            alert('수량과 가격을 확인해주세요.');
+            return;
+        }
+        const priceStr = isUsd ? '$' + price.toFixed(2) : Math.round(price).toLocaleString('ko-KR') + '원';
+        const kindLabel = kind === 'buy' ? '매수' : '매도';
+        if (!confirm(`[${code}] ${name}\n${kindLabel}: ${priceStr} × ${qty}주\n\n주문하시겠습니까?`)) return;
+
+        const btn = document.getElementById('btn-' + kind);
+        btn.disabled = true; btn.textContent = '주문 중…';
+        try {
+            const r = await fetch('/portfolio/' + pfName + '/' + kind, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code, qty, price, excg_cd: excg }),
+            }).then(r => r.json());
+            if (!r.ok) throw new Error(r.error || '주문 실패');
+            alert(`${kindLabel} 주문 완료!\n주문번호: ${r.order_no || '-'}`);
+            location.reload();
+        } catch (e) {
+            alert('오류: ' + e.message);
+            btn.disabled = false;
+            btn.textContent = kindLabel + ' 주문';
+        }
+    }
+
+    async function submitCancel(po, btn) {
+        if (!confirm(`[${po.code}] ${po.name}\n${po.type} ${po.qty}주 주문을 취소하시겠습니까?`)) return;
+        btn.disabled = true; btn.textContent = '취소중…';
+        try {
+            const r = await fetch('/portfolio/' + pfName + '/cancel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    code: po.code, order_no: po.order_no, qty: po.qty, price: po.price,
+                    excg_cd: po.excg_cd, krx_orgno: po.krx_orgno,
+                }),
+            }).then(r => r.json());
+            if (!r.ok) throw new Error(r.error || '취소 실패');
+            alert('취소 완료! 취소주문번호: ' + (r.order_no || '-'));
+            location.reload();
+        } catch (e) {
+            alert('오류: ' + e.message);
+            btn.disabled = false; btn.textContent = '취소';
+        }
+    }
+
+    document.getElementById('btn-buy').addEventListener('click', () => submitOrder('buy'));
+    document.getElementById('btn-sell').addEventListener('click', () => submitOrder('sell'));
+
+    // 행 클릭 → 드로어 열기/닫기
+    document.querySelectorAll('tr.stock-row.is-kis').forEach(row => {
+        row.addEventListener('click', (e) => {
+            // 기존 매도% 버튼 등 행 내부 버튼 클릭은 드로어 토글에서 제외
+            if (e.target.closest('button') || e.target.closest('a')) return;
+
+            const sameRow = currentRow === row;
+            if (sameRow) { closeDrawer(); return; }
+
+            // 다른 행: 이전 행 닫고 드로어를 이 행 뒤로 이동
+            if (currentRow) currentRow.classList.remove('is-expanded');
+            row.classList.add('is-expanded');
+            row.parentNode.insertBefore(drawer, row.nextSibling);
+            drawer.style.display = '';
+            currentRow = row;
+
+            // 수량 기본값 (매도=보유수량, 매수=0)
+            const holdingQty = parseInt(row.dataset.qty) || 0;
+            document.getElementById('sell-holding').textContent = '(보유: ' + holdingQty + ')';
+            document.getElementById('sell-qty').value = holdingQty;
+            document.getElementById('buy-qty').value = '';
+            // 기본 탭: 매수
+            drawer.querySelector('[data-tab="buy"]').click();
+
+            const code = row.dataset.code;
+            const name = row.dataset.name;
+            const excg = row.dataset.excg || '';
+
+            // 로딩 초기화
+            document.getElementById('dw-orderbook').innerHTML =
+                '<div class="text-muted small text-center py-3">호가 불러오는 중…</div>';
+            renderCancelList(code);
+
+            const newKey = code + '|' + excg;
+            if (chartKey !== newKey) {
+                chartKey = newKey;
+                loadChart(code, excg, pfMarket);
+            }
+            loadOrderbook(code, excg, name);
+        });
+    });
+
+    // ESC 로 닫기
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && currentRow) closeDrawer();
+    });
+})();
 
 function quickSell(code, name, qty, excgCd, percent, btn) {
     const sellQty = Math.floor(qty * percent / 100);
