@@ -373,15 +373,11 @@ def _get_cached_summary(pf):
     return result
 
 
-def _build_chart(pf, days=30, w=300, h=56):
+def _chart_from_rows(rows, w=300, h=56):
     """
-    최근 `days`일 일별 스냅샷으로 SVG 차트 데이터 구성.
-    Returns: dict(area_path, line_path, bars, first_date, last_date, realized_30d) 또는 None.
+    rows = [(date, asset_or_None, realized_or_None), ...] 에서 SVG 차트 데이터 dict 생성.
+    포트폴리오/오너 모두에서 공유 사용.
     """
-    try:
-        rows = get_recent_snapshots(PROJECT_ROOT, pf["name"], days=days)
-    except Exception:
-        return None
     if not rows:
         return None
 
@@ -471,6 +467,51 @@ def _build_chart(pf, days=30, w=300, h=56):
     }
 
 
+def _build_chart(pf, days=30, w=300, h=56):
+    """단일 포트폴리오의 일별 스냅샷 → 차트 데이터."""
+    try:
+        rows = get_recent_snapshots(PROJECT_ROOT, pf["name"], days=days)
+    except Exception:
+        return None
+    return _chart_from_rows(rows, w=w, h=h)
+
+
+def _build_owner_chart(owner_pfs, days=30, w=300, h=44):
+    """
+    오너 소속 포트폴리오들의 일별 스냅샷을 날짜별로 합산해 차트 데이터 생성.
+    - 자산 (total_asset): 같은 날짜 모두 sum
+    - 실현손익 (realized_pl): 같은 날짜 모두 sum
+    """
+    if not owner_pfs:
+        return None
+
+    by_date = {}  # date -> [asset_sum, realized_sum, has_any_asset]
+    for pf in owner_pfs:
+        try:
+            rows = get_recent_snapshots(PROJECT_ROOT, pf["name"], days=days)
+        except Exception:
+            continue
+        for d, a, r in rows:
+            entry = by_date.setdefault(d, [0.0, 0.0, False])
+            if a is not None:
+                entry[0] += a
+                entry[2] = True
+            if r is not None:
+                entry[1] += r
+
+    if not by_date:
+        return None
+
+    sorted_dates = sorted(by_date.keys())
+    rows = [
+        (d,
+         by_date[d][0] if by_date[d][2] else None,
+         by_date[d][1])
+        for d in sorted_dates
+    ]
+    return _chart_from_rows(rows, w=w, h=h)
+
+
 @app.route("/")
 def index():
     portfolios = _get_portfolios()
@@ -504,9 +545,15 @@ def index():
     # 포트폴리오별 30일 차트 데이터
     charts = {pf["name"]: _build_chart(pf) for pf in portfolios}
 
+    # 오너별 90일 차트 데이터 (소속 포트폴리오들의 자산/실현손익 합산)
+    owner_charts = {
+        owner: _build_owner_chart(grouped[owner], days=90, w=720, h=80)
+        for owner in sorted_owners
+    }
+
     return render_template("index.html", grouped=grouped, owners=sorted_owners,
                            summaries=summaries, owner_totals=owner_totals,
-                           charts=charts)
+                           charts=charts, owner_charts=owner_charts)
 
 
 @app.route("/portfolio/<name>")

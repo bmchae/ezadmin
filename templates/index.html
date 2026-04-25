@@ -149,6 +149,36 @@
         letter-spacing: 0;
         text-shadow: none;
     }
+    /* 오너 헤더 안의 1년 자산변화 차트 (오너 박스 폭의 45%) */
+    .owner-chart {
+        flex: 0 0 45%;
+        max-width: 45%;
+        height: 80px;
+        margin-left: 28px;       /* 총자산과 차트 사이 여백 */
+        z-index: 1;
+        position: relative;
+    }
+    .owner-chart svg {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+    .owner-chart-empty {
+        flex: 0 0 45%;
+        max-width: 45%;
+        height: 80px;
+        margin-left: 28px;
+        font-size: 11px;
+        color: rgba(242,242,247,0.4);
+        text-align: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1;
+    }
+    @media (max-width: 900px) {
+        .owner-chart, .owner-chart-empty { display: none; }  /* 좁은 화면에서 숨김 */
+    }
     /* 30일 추이 차트 */
     .pf-chart {
         margin-top: 10px;
@@ -218,6 +248,7 @@
 
 {% for owner in owners %}
 {% set total = owner_totals.get(owner, 0) %}
+{% set och = owner_charts.get(owner) if owner_charts is defined else none %}
 <div class="owner-header" data-owner="{{ owner }}" data-initial="{{ owner[:1]|upper }}">
     <div class="owner-avatar">{{ owner[:2]|upper }}</div>
     <div class="owner-info">
@@ -229,6 +260,22 @@
             <div class="owner-total"><span class="lbl">총자산</span>{{ "{:,.0f}".format(total) }}원</div>
         {% endif %}
     </div>
+    {% if och %}
+    <div class="owner-chart pf-chart-body">
+        <svg class="pf-chart-svg" viewBox="0 0 {{ och.w }} {{ och.h }}" preserveAspectRatio="none">
+            <path d="{{ och.area }}" fill="#30d158" fill-opacity="0.22"/>
+            <path d="{{ och.line }}" fill="none" stroke="#30d158" stroke-width="1.4" stroke-linejoin="round"/>
+            {% for b in och.bars %}
+            <rect x="{{ "%.1f"|format(b.x) }}" y="{{ "%.1f"|format(b.y) }}" width="{{ "%.1f"|format(b.w) }}" height="{{ "%.1f"|format(b.h) }}" fill="{{ b.fill }}" rx="0.5"/>
+            {% endfor %}
+            <line class="pf-chart-cursor" x1="0" y1="0" x2="0" y2="{{ och.h }}" stroke="rgba(255,255,255,0.5)" stroke-width="0.6" stroke-dasharray="2,2" style="display:none" vector-effect="non-scaling-stroke"/>
+            <circle class="pf-chart-dot" r="2.4" fill="#30d158" stroke="#1c1c1e" stroke-width="0.8" style="display:none"/>
+        </svg>
+        <script type="application/json" class="pf-chart-data">{{ och.points | tojson }}</script>
+    </div>
+    {% else %}
+    <div class="owner-chart-empty">데이터 수집 중</div>
+    {% endif %}
 </div>
 <div class="row g-3 mb-3">
 {% for pf in grouped[owner] %}
