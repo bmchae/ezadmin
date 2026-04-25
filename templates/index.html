@@ -149,10 +149,10 @@
         letter-spacing: 0;
         text-shadow: none;
     }
-    /* 오너 헤더 안의 1년 자산변화 차트 (오너 박스 폭의 45%) */
+    /* 오너 헤더 안의 1년 자산변화 차트 (오너 박스 폭의 70%) */
     .owner-chart {
-        flex: 0 0 45%;
-        max-width: 45%;
+        flex: 0 0 65%;
+        max-width: 65%;
         height: 80px;
         margin-left: 28px;       /* 총자산과 차트 사이 여백 */
         z-index: 1;
@@ -164,8 +164,8 @@
         height: 100%;
     }
     .owner-chart-empty {
-        flex: 0 0 45%;
-        max-width: 45%;
+        flex: 0 0 65%;
+        max-width: 65%;
         height: 80px;
         margin-left: 28px;
         font-size: 11px;
@@ -257,7 +257,7 @@
             <span class="owner-count">{{ grouped[owner]|length }}개</span>
         </div>
         {% if total %}
-            <div class="owner-total"><span class="lbl">총자산</span>{{ "{:,.0f}".format(total) }}원</div>
+            <div class="owner-total">{{ "{:,.0f}".format(total) }}원</div>
         {% endif %}
     </div>
     {% if och %}
