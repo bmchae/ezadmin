@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import quote
 
 from flask import (Flask, Response, render_template, request, jsonify,
-                   make_response, redirect)
+                   make_response, redirect, g)
 from werkzeug.security import check_password_hash
 
 from config_loader import load_all_portfolios, KNOWN_OWNERS
@@ -74,7 +74,8 @@ AUTH_PASSWORD_HASH = os.environ.get("WEB_AUTH_PASSWORD_HASH", "")
 TRUST_PROXY = os.environ.get("TRUST_PROXY", "0") == "1"
 
 SESSION_COOKIE = "ezadmin_session"
-SESSION_TTL = 24 * 60 * 60  # 24시간
+SESSION_TTL = 24 * 60 * 60        # 24시간
+SESSION_REFRESH_THRESHOLD = 12 * 60 * 60   # 만료까지 12시간 미만이면 토큰 재발급
 # 인증 면제 API 엔드포인트 (web frontend 외 API 서버 용도)
 API_PATH_SUFFIXES = ("/sell", "/cancel", "/askprice")
 API_PATH_EXACT = ("/reload",)
@@ -206,11 +207,29 @@ def _require_session():
     token = request.cookies.get(SESSION_COOKIE, "")
     payload = _jwt_decode(token, secret)
     if payload and payload.get("sub"):
+        # 임계값 갱신: exp 까지 12시간 미만 남았으면 토큰 재발급 (after_request 에서 쿠키 set)
+        exp = payload.get("exp", 0)
+        now = int(time.time())
+        if isinstance(exp, (int, float)) and exp - now < SESSION_REFRESH_THRESHOLD:
+            new_token = _jwt_encode(
+                {"sub": payload["sub"], "iat": now, "exp": now + SESSION_TTL},
+                secret,
+            )
+            g._refresh_token = new_token
         return None
 
     # 인증 실패 → 로그인 페이지로
     next_url = request.full_path.rstrip("?") if request.query_string else request.path
     return redirect(f"/login?next={quote(next_url)}")
+
+
+@app.after_request
+def _refresh_session_cookie(resp):
+    """_require_session 에서 임계값 미만이라 발급해둔 새 토큰을 쿠키로 set."""
+    new_token = getattr(g, "_refresh_token", None)
+    if new_token:
+        _set_session_cookie(resp, new_token, SESSION_TTL)
+    return resp
 
 
 @app.route("/login", methods=["GET", "POST"])
