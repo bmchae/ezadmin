@@ -20,8 +20,17 @@ class _KWTokenExpired(Exception):
     """Kiwoom 토큰 만료/무효를 나타내는 예외."""
 
 
-def _token_dir(project_root):
-    d = os.path.join(os.path.dirname(project_root), "tokens")
+def _token_dir(project_root, acct_cfg=None):
+    """
+    토큰 파일 디렉토리.
+    - acct_cfg["token_dir"] 가 있으면 그 경로 사용 (~ 확장)
+    - 없으면 project_root 의 부모 + "tokens" (기본 ~/ez/tokens)
+    """
+    custom = (acct_cfg or {}).get("token_dir")
+    if custom:
+        d = os.path.expanduser(str(custom))
+    else:
+        d = os.path.join(os.path.dirname(project_root), "tokens")
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -37,12 +46,12 @@ def _token_path_new(project_root, acct_cfg):
           or "unknown"
     acct = raw.replace("-", "") or "unknown"
     suffix = "_mock" if acct_cfg.get("is_mock") else ""
-    return os.path.join(_token_dir(project_root), f"kw_{acct}{suffix}.token")
+    return os.path.join(_token_dir(project_root, acct_cfg), f"kw_{acct}{suffix}.token")
 
 
-def _token_path_legacy(project_root, cfg_name):
+def _token_path_legacy(project_root, cfg_name, acct_cfg=None):
     """구 명명: KW-<cfg_name>.json (호환용 fallback)."""
-    return os.path.join(_token_dir(project_root), f"KW-{cfg_name}.json")
+    return os.path.join(_token_dir(project_root, acct_cfg), f"KW-{cfg_name}.json")
 
 
 def _load_cached_token(path):
@@ -72,7 +81,7 @@ def _get_token(acct_cfg, project_root, acct_config_name="", force_new=False):
     base_url = MOCK_URL if acct_cfg.get("is_mock") else REAL_URL
     cfg_name = acct_config_name.replace(".yaml", "") if acct_config_name else "kw"
     new_path = _token_path_new(project_root, acct_cfg)
-    legacy_path = _token_path_legacy(project_root, cfg_name)
+    legacy_path = _token_path_legacy(project_root, cfg_name, acct_cfg)
 
     if not force_new:
         # 1) 신규 명명 우선

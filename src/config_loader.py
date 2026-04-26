@@ -150,6 +150,9 @@ def _build_ezsplit(cfg, fname, fpath, project, project_root):
             "my_acct_stock": "UPBIT",
             "my_prod": "",
         }
+        # Upbit 은 토큰 캐시가 없지만 일관성을 위해 보존
+        if cfg.get("token_dir"):
+            acct_cfg["token_dir"] = cfg["token_dir"]
         return {
             "name": name,
             "description": f"({project}) {cfg.get('name', name)}",
@@ -209,6 +212,10 @@ def _build_ezsplit(cfg, fname, fpath, project, project_root):
     else:
         return None
 
+    # portfolio yaml 의 top-level token_dir 을 토큰 캐시 경로로 acct_cfg 에 전파
+    if cfg.get("token_dir"):
+        acct_cfg["token_dir"] = cfg["token_dir"]
+
     return {
         "name": name,
         "description": f"({project}) {cfg.get('name', name)}",
@@ -245,6 +252,10 @@ def _build_portfolio_ref(cfg, fname, project, project_root, config_dir):
 
     account_type = str(cfg.get("account_type", "kis")).lower()
     broker = "kw" if account_type in ("kw", "kiwoom") else "kis"
+
+    # token_dir 우선순위: portfolio yaml > account yaml
+    if cfg.get("token_dir"):
+        acct_cfg["token_dir"] = cfg["token_dir"]
 
     return {
         "name": fname.replace(".yaml", ""),
@@ -302,6 +313,8 @@ def _build_bog(cfg, fname, fpath, project, project_root):
             "vps": KIS_VPS_URL,
             "my_agent": DEFAULT_UA,
         }
+        if cfg.get("token_dir"):
+            acct_cfg["token_dir"] = cfg["token_dir"]
         base_name = fname.replace(".yaml", "")
         portfolios.append({
             "name": f"{base_name}-{name}",

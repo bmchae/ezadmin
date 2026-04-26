@@ -83,7 +83,12 @@ def _get_token(acct_cfg, project_root, acct_config_name="", force_new=False):
     # cfg_name: account config 파일명에서 .yaml 제거 (구 명명 fallback 용)
     cfg_name = acct_config_name.replace(".yaml", "") if acct_config_name else acct_cfg.get("my_htsid", "unknown")
 
-    token_dir = os.path.join(os.path.dirname(project_root), "tokens")
+    # token_dir: acct_cfg/portfolio yaml 의 token_dir 항목 우선, 없으면 ~/ez/tokens
+    custom_dir = acct_cfg.get("token_dir")
+    if custom_dir:
+        token_dir = os.path.expanduser(str(custom_dir))
+    else:
+        token_dir = os.path.join(os.path.dirname(project_root), "tokens")
     os.makedirs(token_dir, exist_ok=True)
 
     new_path = _token_path(token_dir, acct_cfg)
