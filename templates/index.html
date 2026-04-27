@@ -338,7 +338,7 @@
                             {% if today_rlz is none %}
                                 <span class="value text-muted">-</span>
                             {% else %}
-                                <span class="value {{ 'text-profit' if today_rlz > 0 else 'text-loss' if today_rlz < 0 else '' }}">
+                                <span class="value {{ 'text-profit' if today_rlz > 0 else 'text-loss' if today_rlz < 0 else '' }}" style="font-weight: 800; font-size: 17px;">
                                     {{ "+" if today_rlz > 0 else "" }}{{ "{:,.0f}".format(today_rlz) }}원
                                 </span>
                             {% endif %}
