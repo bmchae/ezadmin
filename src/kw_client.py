@@ -157,10 +157,10 @@ def _is_token_expired(res, data=None):
     return False
 
 
-def _kw_post(base_url, token, app_key, app_secret, api_id, body):
-    """Kiwoom REST POST 공통. 응답 본문(dict)과 토큰 만료 여부 반환."""
+def _kw_post(base_url, token, app_key, app_secret, api_id, body, path="/api/dostk/acnt"):
+    """Kiwoom REST POST 공통. path 미지정 시 /acnt (계좌 관련). 주문은 /ordr."""
     res = requests.post(
-        f"{base_url}/api/dostk/acnt",
+        f"{base_url}{path}",
         headers=_headers(token, app_key, app_secret, api_id),
         json=body,
         timeout=15,
@@ -406,3 +406,185 @@ def get_domestic_today_realized_pl(acct_cfg, project_root, acct_config_name="",
         "매도금액": sell_amt,
         "매수금액": buy_amt,
     }
+
+
+def _kw_pick(d, *keys, default=None):
+    """방어적 필드 추출 — 여러 후보 키 중 첫 값(공백 아님) 반환."""
+    for k in keys:
+        v = d.get(k)
+        if v not in (None, ""):
+            return v
+    return default
+
+
+def _kw_normalize_trade_kind(v):
+    """주문구분 정규화: '1매수'/'2매도' / '+매수'/'-매도' / '매수'/'매도' / '01'/'02' 등을 '매수'/'매도' 로."""
+    s = str(v or "").strip()
+    if not s:
+        return ""
+    # 한글 포함 시 우선 매칭
+    if "매수" in s:
+        return "매수"
+    if "매도" in s:
+        return "매도"
+    # 숫자/기호 패턴
+    if s in ("1", "+1", "+", "01", "02-매수"):
+        return "매수"
+    if s in ("2", "-1", "-", "02", "01-매도"):
+        return "매도"
+    return s
+
+
+@_retry_on_token_expiry
+def get_pending_orders(acct_cfg, project_root, acct_config_name=""):
+    """
+    Kiwoom 국내 금일 미체결 주문 조회 (ka10075 실시간미체결요청).
+
+    Body: stex_tp="0"(통합) / trde_tp="0"(전체) / all_stk_tp="0"(전체) / stk_cd=""(전체)
+    응답에 다양한 필드명이 있을 수 있어 _kw_pick 으로 방어 처리.
+
+    Returns: list of dict(주문구분/종목코드/종목명/주문수량/주문단가/주문번호/krx_fwdg_ord_orgno)
+    """
+    try:
+        token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    except Exception as e:
+        print(f"[kw-pending] token error: {e}")
+        return []
+
+    body = {
+        "all_stk_tp": "0",
+        "trde_tp": "0",
+        "stex_tp": "0",
+        "stk_cd": "",
+    }
+    try:
+        data = _kw_post(base_url, token,
+                        acct_cfg["app_key"], acct_cfg["app_secret"],
+                        "ka10075", body)
+    except _KWTokenExpired:
+        raise
+    except Exception as e:
+        print(f"[kw-pending] ka10075 실패 ({acct_config_name}): {e}")
+        return []
+
+    # 응답 본문 list 키 후보: oso, oso_lst, output, list 등
+    rows = (data.get("oso") or data.get("oso_lst") or data.get("output")
+            or data.get("list") or [])
+
+    result = []
+    for it in rows:
+        rmn = int(_f(_kw_pick(it, "oso_qty", "rmnd_qty", "rmn_qty", "ord_rmnd_qty", "ord_rmn_qty", default=0)))
+        ord_qty = int(_f(_kw_pick(it, "ord_qty", default=0)))
+        cntr_qty = int(_f(_kw_pick(it, "cntr_qty", "ccld_qty", default=0)))
+        if rmn == 0 and ord_qty > 0:
+            rmn = ord_qty - cntr_qty
+        if rmn <= 0:
+            continue
+        kind = _kw_normalize_trade_kind(_kw_pick(it, "io_tp_nm", "trde_tp_nm", "trde_tp", "io_tp", default=""))
+        code = _kw_pick(it, "stk_cd", "code", default="") or ""
+        # 키움 종목코드 가끔 'A' 접두사 있음
+        if code.startswith("A") and len(code) == 7:
+            code = code[1:]
+        ord_pric = int(_f(_kw_pick(it, "ord_pric", "ord_unpr", "ord_price", default=0)))
+        result.append({
+            "주문구분": kind,
+            "종목코드": code,
+            "종목명": _kw_pick(it, "stk_nm", "prdt_name", default="") or code,
+            "주문수량": rmn,
+            "주문단가": ord_pric,
+            "주문번호": str(_kw_pick(it, "ord_no", "odno", default="") or ""),
+            "krx_fwdg_ord_orgno": "",  # 키움은 별도 필드 없이 ord_no 만으로 취소 가능
+        })
+    return result
+
+
+@_retry_on_token_expiry
+def get_today_trades_domestic(acct_cfg, project_root, acct_config_name=""):
+    """
+    Kiwoom 국내 금일 체결 내역 (ka10076 체결내역요청).
+
+    Body: ord_dt=오늘 / qry_tp="1"(체결내역) / sell_tp="0"(전체) / stk_cd=""
+    Returns: list of dict(시각, 종목코드, 종목명, 주문구분, 체결단가, 체결수량, 체결금액)
+            최신 → 오래된 순.
+    """
+    try:
+        token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    except Exception as e:
+        print(f"[kw-trades] token error: {e}")
+        return []
+
+    today = datetime.now().strftime("%Y%m%d")
+    body = {
+        "ord_dt": today,
+        "qry_tp": "1",     # 체결내역
+        "sell_tp": "0",    # 전체
+        "stk_cd": "",
+        "fr_ord_no": "",
+        "stex_tp": "0",
+    }
+    try:
+        data = _kw_post(base_url, token,
+                        acct_cfg["app_key"], acct_cfg["app_secret"],
+                        "ka10076", body)
+    except _KWTokenExpired:
+        raise
+    except Exception as e:
+        print(f"[kw-trades] ka10076 실패 ({acct_config_name}): {e}")
+        return []
+
+    rows = (data.get("cntr") or data.get("cntr_lst") or data.get("output")
+            or data.get("list") or [])
+
+    result = []
+    for it in rows:
+        cntr_qty = int(_f(_kw_pick(it, "cntr_qty", "ccld_qty", default=0)))
+        if cntr_qty <= 0:
+            continue
+        kind = _kw_normalize_trade_kind(_kw_pick(it, "io_tp_nm", "trde_tp_nm", "trde_tp", "io_tp", default=""))
+        code = _kw_pick(it, "stk_cd", "code", default="") or ""
+        if code.startswith("A") and len(code) == 7:
+            code = code[1:]
+        unit = int(_f(_kw_pick(it, "cntr_pric", "cntr_unpr", default=0)))
+        amt_raw = _f(_kw_pick(it, "cntr_amt", "tot_ccld_amt", default=0))
+        amt = int(amt_raw) if amt_raw else unit * cntr_qty
+        # 시각: HHMMSS 또는 HH:MM:SS 형태로 응답
+        tm = str(_kw_pick(it, "cntr_tm", "ord_tmd", "tm", default="") or "")
+        if len(tm) == 6 and tm.isdigit():
+            tm = f"{tm[:2]}:{tm[2:4]}:{tm[4:]}"
+        result.append({
+            "시각": tm,
+            "종목코드": code,
+            "종목명": _kw_pick(it, "stk_nm", "prdt_name", default="") or code,
+            "주문구분": kind,
+            "체결단가": unit,
+            "체결수량": cntr_qty,
+            "체결금액": amt,
+        })
+    result.sort(key=lambda x: x["시각"], reverse=True)
+    return result
+
+
+@_retry_on_token_expiry
+def cancel_order(acct_cfg, project_root, acct_config_name, order_no, stk_cd, qty=0):
+    """
+    Kiwoom 국내 주문 취소 (kt10003 주식주문취소요청).
+
+    Body:
+      - dmst_stex_tp: "KRX" (국내 정규시장)
+      - orig_ord_no:  원주문번호
+      - stk_cd:       종목코드
+      - cncl_qty:     취소수량 ("0" 이면 잔량 전체 취소)
+
+    Returns: {"주문번호": "<취소주문번호>"} 형태로 KIS 와 동일하게 맞춤.
+    """
+    token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    body = {
+        "dmst_stex_tp": "KRX",
+        "orig_ord_no": str(order_no),
+        "stk_cd": str(stk_cd),
+        "cncl_qty": str(int(qty)) if qty else "0",
+    }
+    data = _kw_post(base_url, token,
+                    acct_cfg["app_key"], acct_cfg["app_secret"],
+                    "kt10003", body, path="/api/dostk/ordr")
+    return {"주문번호": str(data.get("ord_no") or data.get("odno") or "")}

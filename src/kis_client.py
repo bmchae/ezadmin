@@ -822,9 +822,12 @@ def cancel_order_overseas(acct_cfg, project_root, acct_config_name, order_no, st
 
 def get_pending_orders(acct_cfg, project_root, acct_config_name=""):
     """
-    국내주식 계좌의 미체결 주문 전체 조회 (매수+매도).
-    Returns: list of dicts with 주문구분/종목코드/종목명/주문수량/주문단가/주문번호/krx_fwdg_ord_orgno
-    잔여수량(rmn_qty)이 0인 건은 제외한다.
+    국내주식 금일 미체결 주문 전체 조회 (TR: TTTC8001R, CCLD_DVSN=02).
+
+    이전 구현(TTTC8036R 정정취소가능주문조회)은 일부 상태(예약/시간외 등)의 주문이
+    누락되거나 페이징을 지원하지 않아, 더 포괄적인 일별주문체결조회로 변경.
+
+    Returns: list of dicts(주문구분/종목코드/종목명/주문수량/주문단가/주문번호/krx_fwdg_ord_orgno)
     """
     try:
         token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
@@ -832,55 +835,268 @@ def get_pending_orders(acct_cfg, project_root, acct_config_name=""):
         print(f"[pending-domestic] token error: {e}")
         return []
 
-    acct_no = acct_cfg["my_acct_stock"]
-    prod_cd = acct_cfg["my_prod"]
+    today = datetime.now().strftime("%Y%m%d")
+    svr = acct_cfg.get("server", "prod")
+    tr_id = "TTTC8001R" if svr == "prod" else "VTTC8001R"
 
     headers = _make_headers(token, acct_cfg["my_app"], acct_cfg["my_sec"],
-                            "TTTC8036R", acct_cfg.get("my_agent", ""))
+                            tr_id, acct_cfg.get("my_agent", ""))
+
+    all_rows = []
+    fk100 = ""
+    nk100 = ""
+    for _ in range(20):  # 페이징 안전 한도
+        params = {
+            "CANO": acct_cfg["my_acct_stock"],
+            "ACNT_PRDT_CD": acct_cfg["my_prod"],
+            "INQR_STRT_DT": today,
+            "INQR_END_DT": today,
+            "SLL_BUY_DVSN_CD": "00",   # 매도/매수 전체
+            "INQR_DVSN": "00",         # 역순
+            "PDNO": "",
+            "CCLD_DVSN": "02",         # 미체결
+            "ORD_GNO_BRNO": "",
+            "ODNO": "",
+            "INQR_DVSN_3": "00",
+            "INQR_DVSN_1": "",
+            "CTX_AREA_FK100": fk100,
+            "CTX_AREA_NK100": nk100,
+        }
+        try:
+            res = requests.get(
+                f"{base_url}/uapi/domestic-stock/v1/trading/inquire-daily-ccld",
+                headers=headers, params=params)
+            if res.status_code != 200:
+                print(f"[pending-domestic] http {res.status_code}: {res.text[:200]}")
+                break
+            data = res.json()
+            if data.get("rt_cd") != "0":
+                print(f"[pending-domestic] rt_cd={data.get('rt_cd')} msg={data.get('msg1')}")
+                break
+        except Exception as e:
+            print(f"[pending-domestic] request error: {e}")
+            break
+
+        all_rows.extend(data.get("output1", []) or [])
+
+        tr_cont = res.headers.get("tr_cont", "")
+        fk100 = data.get("ctx_area_fk100", "") or ""
+        nk100 = data.get("ctx_area_nk100", "") or ""
+        if tr_cont not in ("M", "F"):
+            break
+        headers["tr_cont"] = "N"
+        time.sleep(0.1)
+
+    def _i(v):
+        try:
+            return int(float(v or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    result = []
+    for it in all_rows:
+        if (it.get("cncl_yn") or "").upper() == "Y":
+            continue
+        code = it.get("pdno", "")
+        if not code:
+            continue
+        ord_qty = _i(it.get("ord_qty"))
+        ccld_qty = _i(it.get("tot_ccld_qty"))
+        # rmn_qty 가 응답에 있으면 그것 우선, 없으면 ord_qty - ccld_qty
+        rmn = _i(it.get("rmn_qty")) or (ord_qty - ccld_qty)
+        if rmn <= 0:
+            continue
+        sll_buy = it.get("sll_buy_dvsn_cd", "")
+        # 국내: 01=매도, 02=매수
+        kind = "매도" if sll_buy == "01" else "매수" if sll_buy == "02" else sll_buy
+        result.append({
+            "주문구분": kind,
+            "종목코드": code,
+            "종목명": it.get("prdt_name", "") or code,
+            "주문수량": rmn,
+            "주문단가": _i(it.get("ord_unpr")),
+            "주문번호": it.get("odno", "") or it.get("ord_no", ""),
+            # TTTC8001R 의 ord_gno_brno = TTTC8036R 의 krx_fwdg_ord_orgno 와 동일 의미
+            "krx_fwdg_ord_orgno": it.get("ord_gno_brno", "") or it.get("krx_fwdg_ord_orgno", ""),
+        })
+    return result
+
+
+def get_today_trades_domestic(acct_cfg, project_root, acct_config_name=""):
+    """
+    국내주식 금일 체결 내역 (TR: TTTC8001R inquire-daily-ccld).
+    당일 체결된 매수/매도 주문만 반환 (취소된 주문 제외).
+    Returns: list of dict(시각, 종목코드, 종목명, 주문구분, 체결단가, 체결수량, 체결금액)
+            최신 → 오래된 순.
+    """
+    try:
+        token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    except Exception as e:
+        print(f"[today-trades-domestic] token error: {e}")
+        return []
+
+    today = datetime.now().strftime("%Y%m%d")
+    svr = acct_cfg.get("server", "prod")
+    tr_id = "TTTC8001R" if svr == "prod" else "VTTC8001R"
+
+    headers = _make_headers(token, acct_cfg["my_app"], acct_cfg["my_sec"],
+                            tr_id, acct_cfg.get("my_agent", ""))
     params = {
-        "CANO": acct_no,
-        "ACNT_PRDT_CD": prod_cd,
+        "CANO": acct_cfg["my_acct_stock"],
+        "ACNT_PRDT_CD": acct_cfg["my_prod"],
+        "INQR_STRT_DT": today,
+        "INQR_END_DT": today,
+        "SLL_BUY_DVSN_CD": "00",   # 전체
+        "INQR_DVSN": "00",         # 역순(최신부터)
+        "PDNO": "",
+        "CCLD_DVSN": "01",         # 체결
+        "ORD_GNO_BRNO": "",
+        "ODNO": "",
+        "INQR_DVSN_3": "00",
+        "INQR_DVSN_1": "",
         "CTX_AREA_FK100": "",
         "CTX_AREA_NK100": "",
-        "INQR_DVSN_1": "0",   # 0=전체
-        "INQR_DVSN_2": "0",
     }
 
     try:
         res = requests.get(
-            f"{base_url}/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl",
+            f"{base_url}/uapi/domestic-stock/v1/trading/inquire-daily-ccld",
             headers=headers, params=params)
         if res.status_code != 200:
-            print(f"[pending-domestic] http {res.status_code}: {res.text[:200]}")
+            print(f"[today-trades-domestic] http {res.status_code}: {res.text[:200]}")
             return []
         data = res.json()
         if data.get("rt_cd") != "0":
-            print(f"[pending-domestic] rt_cd={data.get('rt_cd')} msg={data.get('msg1')}")
+            print(f"[today-trades-domestic] rt_cd={data.get('rt_cd')} msg={data.get('msg1')}")
             return []
     except Exception as e:
-        print(f"[pending-domestic] request error: {e}")
+        print(f"[today-trades-domestic] request error: {e}")
+        return []
+
+    output1 = data.get("output1", []) or []
+
+    def _i(v):
+        try:
+            return int(float(v or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    result = []
+    for it in output1:
+        if (it.get("cncl_yn") or "").upper() == "Y":
+            continue
+        ccld_qty = _i(it.get("tot_ccld_qty"))
+        if ccld_qty <= 0:
+            continue
+        sll_buy = it.get("sll_buy_dvsn_cd", "")
+        # 국내: 01=매도, 02=매수
+        kind = "매도" if sll_buy == "01" else "매수" if sll_buy == "02" else sll_buy
+        avg_price = _i(it.get("avg_prvs"))
+        amt = _i(it.get("tot_ccld_amt")) or (avg_price * ccld_qty)
+        ord_tmd = it.get("ord_tmd", "")  # HHMMSS
+        if len(ord_tmd) == 6:
+            ord_tmd = f"{ord_tmd[:2]}:{ord_tmd[2:4]}:{ord_tmd[4:]}"
+        result.append({
+            "시각": ord_tmd,
+            "종목코드": it.get("pdno", ""),
+            "종목명": it.get("prdt_name", "") or it.get("pdno", ""),
+            "주문구분": kind,
+            "체결단가": avg_price,
+            "체결수량": ccld_qty,
+            "체결금액": amt,
+        })
+    # 시간순 (오래된 → 최신)
+    result.sort(key=lambda x: x["시각"], reverse=True)  # 최신 → 오래된
+    return result
+
+
+def get_today_trades_overseas(acct_cfg, project_root, acct_config_name=""):
+    """
+    해외주식 금일 체결 내역 (TR: TTTS3035R inquire-ccnl).
+    Returns: list of dict(시각, 종목코드, 거래소, 종목명, 주문구분, 체결단가, 체결수량, 체결금액)
+            최신 → 오래된 순. 단가/금액은 USD.
+    """
+    try:
+        token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    except Exception as e:
+        print(f"[today-trades-overseas] token error: {e}")
+        return []
+
+    today = datetime.now().strftime("%Y%m%d")
+    svr = acct_cfg.get("server", "prod")
+    tr_id = "TTTS3035R" if svr == "prod" else "VTTS3035R"
+
+    headers = _make_headers(token, acct_cfg["my_app"], acct_cfg["my_sec"],
+                            tr_id, acct_cfg.get("my_agent", ""))
+    params = {
+        "CANO": acct_cfg["my_acct_stock"],
+        "ACNT_PRDT_CD": acct_cfg["my_prod"],
+        "PDNO": "%",
+        "ORD_STRT_DT": today,
+        "ORD_END_DT": today,
+        "SLL_BUY_DVSN": "00",        # 전체
+        "CCLD_NCCS_DVSN": "01",      # 체결
+        "OVRS_EXCG_CD": "%",         # 전체
+        "SORT_SQN": "AS",            # 정순(오래된→최신) — 어쨌든 다시 정렬함
+        "ORD_DT": "",
+        "ORD_GNO_BRNO": "",
+        "ODNO": "",
+        "CTX_AREA_NK200": "",
+        "CTX_AREA_FK200": "",
+    }
+
+    try:
+        res = requests.get(
+            f"{base_url}/uapi/overseas-stock/v1/trading/inquire-ccnl",
+            headers=headers, params=params)
+        if res.status_code != 200:
+            print(f"[today-trades-overseas] http {res.status_code}: {res.text[:200]}")
+            return []
+        data = res.json()
+        if data.get("rt_cd") != "0":
+            print(f"[today-trades-overseas] rt_cd={data.get('rt_cd')} msg={data.get('msg1')}")
+            return []
+    except Exception as e:
+        print(f"[today-trades-overseas] request error: {e}")
         return []
 
     output = data.get("output", []) or []
 
+    def _f(v):
+        try:
+            return float(v or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _i(v):
+        try:
+            return int(float(v or 0))
+        except (TypeError, ValueError):
+            return 0
+
     result = []
-    for item in output:
-        code = item.get("pdno", "")
-        rmn_qty = int(item.get("rmn_qty", 0) or 0)
-        if not code or rmn_qty == 0:
+    for it in output:
+        ccld_qty = _i(it.get("ft_ccld_qty"))
+        if ccld_qty <= 0:
             continue
-        # 국내: 01=매도, 02=매수
-        sll_buy = item.get("sll_buy_dvsn_cd", "")
-        order_type = "매도" if sll_buy == "01" else "매수" if sll_buy == "02" else sll_buy
+        sll_buy = it.get("sll_buy_dvsn_cd", "")
+        kind = "매도" if sll_buy == "02" else "매수" if sll_buy == "01" else sll_buy
+        unit_price = _f(it.get("ft_ccld_unpr3") or it.get("ft_ord_unpr3"))
+        amt = _f(it.get("ft_ccld_amt3")) or (unit_price * ccld_qty)
+        ord_tmd = it.get("ord_tmd", "")
+        if len(ord_tmd) == 6:
+            ord_tmd = f"{ord_tmd[:2]}:{ord_tmd[2:4]}:{ord_tmd[4:]}"
         result.append({
-            "주문구분": order_type,
-            "종목코드": code,
-            "종목명": item.get("prdt_name", "") or code,
-            "주문수량": rmn_qty,
-            "주문단가": int(float(item.get("ord_unpr", 0) or 0)),
-            "주문번호": item.get("odno", "") or item.get("ord_no", ""),
-            "krx_fwdg_ord_orgno": item.get("krx_fwdg_ord_orgno", ""),
+            "시각": ord_tmd,
+            "종목코드": it.get("pdno", ""),
+            "거래소": it.get("ovrs_excg_cd", ""),
+            "종목명": it.get("prdt_name", "") or it.get("pdno", ""),
+            "주문구분": kind,
+            "체결단가": unit_price,
+            "체결수량": ccld_qty,
+            "체결금액": amt,
         })
+    result.sort(key=lambda x: x["시각"], reverse=True)  # 최신 → 오래된
     return result
 
 

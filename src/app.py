@@ -23,6 +23,7 @@ from kis_client import (get_domestic_balance, get_overseas_balance,
                         get_domestic_today_realized_pl,
                         get_overseas_today_realized_pl,
                         get_pending_orders, get_pending_orders_overseas,
+                        get_today_trades_domestic, get_today_trades_overseas,
                         place_buy_order, place_buy_order_overseas,
                         place_sell_order, place_sell_order_overseas,
                         get_ask_price_domestic, get_ask_price_overseas,
@@ -620,9 +621,16 @@ def portfolio_detail(name):
     # 수익률 높은 순으로 정렬
     holdings.sort(key=lambda h: h["수익률"], reverse=True)
 
-    # 미체결 주문 전체 조회 (매수+매도). Kiwoom / Upbit 은 미지원이므로 빈 리스트.
-    if pf.get("broker", "kis") in ("kw", "upbit"):
+    # 미체결 주문 전체 조회 (매수+매도). Upbit 은 미지원이므로 빈 리스트.
+    broker = pf.get("broker", "kis")
+    if broker == "upbit":
         pending_orders = []
+    elif broker == "kw":
+        try:
+            pending_orders = kw_client.get_pending_orders(pf["account_cfg"], pf["project_root"], acct_name)
+        except Exception as e:
+            print(f"[pending-kw] {pf.get('name','?')}: {e}")
+            pending_orders = []
     elif pf["market"] == "us":
         pending_orders = get_pending_orders_overseas(pf["account_cfg"], pf["project_root"], acct_name)
     else:
@@ -637,10 +645,25 @@ def portfolio_detail(name):
     # holdings 행 렌더에 사용할 종목코드별 미체결 매도 주문 존재 여부
     pending_sell_codes = {po["종목코드"] for po in pending_orders if po.get("주문구분") == "매도"}
 
+    # 금일 체결 내역 조회 (KIS 국내·해외, KW 국내. Upbit 은 미지원)
+    today_trades = []
+    try:
+        if broker == "kw":
+            today_trades = kw_client.get_today_trades_domestic(pf["account_cfg"], pf["project_root"], acct_name)
+        elif broker == "kis":
+            if pf["market"] == "us":
+                today_trades = get_today_trades_overseas(pf["account_cfg"], pf["project_root"], acct_name)
+            else:
+                today_trades = get_today_trades_domestic(pf["account_cfg"], pf["project_root"], acct_name)
+    except Exception as e:
+        print(f"[today-trades] {pf.get('name','?')}: {e}")
+        today_trades = []
+
     resp = make_response(render_template("portfolio.html", pf=pf, holdings=holdings,
                                          summary=summary, currency=currency, error=None,
                                          pending_orders=pending_orders,
-                                         pending_sell_codes=pending_sell_codes))
+                                         pending_sell_codes=pending_sell_codes,
+                                         today_trades=today_trades))
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     resp.headers["Pragma"] = "no-cache"
     return resp
@@ -697,7 +720,11 @@ def cancel_sell_order(name):
 
     try:
         acct_name = pf.get("account_config_name", "")
-        if pf["market"] == "us":
+        broker = pf.get("broker", "kis")
+        if broker == "kw":
+            result = kw_client.cancel_order(pf["account_cfg"], pf["project_root"], acct_name,
+                                            order_no, code, qty)
+        elif pf["market"] == "us":
             excg_cd = body.get("excg_cd", "")
             result = cancel_order_overseas(pf["account_cfg"], pf["project_root"], acct_name,
                                            order_no, code, excg_cd, qty, price)

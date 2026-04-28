@@ -13,6 +13,30 @@
     .pf-detail .btn-sm { font-size: 11px; letter-spacing: -0.12px; padding: 3px 8px; }
     .pf-detail .badge { font-size: 10px; padding: 3px 8px; letter-spacing: -0.08px; }
 
+    /* 금일 매매내역 토글 (details) */
+    .today-trades > summary {
+        cursor: pointer;
+        user-select: none;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: -0.224px;
+        padding: 6px 4px;
+        list-style: none;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .today-trades > summary::-webkit-details-marker { display: none; }
+    .today-trades > summary::before {
+        content: "▶";
+        font-size: 10px;
+        color: var(--apple-text-tertiary);
+        transition: transform 0.15s;
+        display: inline-block;
+    }
+    .today-trades[open] > summary::before { transform: rotate(90deg); }
+    .today-trades > summary:hover { color: var(--bs-primary, #0d6efd); }
+
     /* 종목 행 드로어 (클릭시 펼침) */
     .stock-row.is-kis { cursor: pointer; }
     .stock-row.is-kis:hover { background: rgba(13,110,253,0.04); }
@@ -304,10 +328,13 @@
 
 {% endif %}
 
-{% if pending_orders %}
-<div class="mb-3">
-    <h6 class="mb-2">미체결 주문 ({{ pending_orders|length }}건)</h6>
-    <div class="table-responsive">
+{% if pending_orders is defined %}
+<details class="mb-3 today-trades" open>
+    <summary>
+        금일 미체결주문 <span class="text-muted small">({{ pending_orders|length }}건)</span>
+    </summary>
+    {% if pending_orders %}
+    <div class="table-responsive mt-2">
     <table class="table table-sm table-hover table-bordered align-middle mb-0">
         <thead class="table-light">
             <tr>
@@ -364,7 +391,66 @@
         </tbody>
     </table>
     </div>
-</div>
+    {% else %}
+    <div class="text-muted small mt-2 px-2 py-3">미체결 주문이 없습니다.</div>
+    {% endif %}
+</details>
+{% endif %}
+
+{% if today_trades is defined and today_trades %}
+<details class="mb-3 today-trades">
+    <summary>
+        금일 매매내역 <span class="text-muted small">({{ today_trades|length }}건)</span>
+    </summary>
+    <div class="table-responsive mt-2">
+    <table class="table table-sm table-hover table-bordered align-middle mb-0">
+        <thead class="table-light">
+            <tr>
+                <th class="text-center" style="width: 90px;">시각</th>
+                <th>종목</th>
+                {% if currency == 'USD' %}<th class="text-center" style="width: 60px;">거래소</th>{% endif %}
+                <th class="text-center" style="width: 60px;">구분</th>
+                <th class="text-end" style="width: 110px;">체결단가</th>
+                <th class="text-end" style="width: 90px;">수량</th>
+                <th class="text-end" style="width: 130px;">체결금액</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for t in today_trades %}
+            <tr>
+                <td class="text-center text-muted small">{{ t['시각'] }}</td>
+                <td><code class="me-1">{{ t['종목코드'] }}</code>{{ t['종목명'] }}</td>
+                {% if currency == 'USD' %}<td class="text-center small text-muted">{{ t.get('거래소', '') }}</td>{% endif %}
+                <td class="text-center">
+                    {% if t['주문구분'] == '매수' %}
+                        <span class="badge bg-danger">매수</span>
+                    {% elif t['주문구분'] == '매도' %}
+                        <span class="badge bg-primary">매도</span>
+                    {% else %}
+                        <span class="badge bg-secondary">{{ t['주문구분'] }}</span>
+                    {% endif %}
+                </td>
+                <td class="text-end">
+                    {% if currency == 'USD' %}
+                        ${{ "{:,.2f}".format(t['체결단가']) }}
+                    {% else %}
+                        {{ "{:,.0f}".format(t['체결단가']) }}
+                    {% endif %}
+                </td>
+                <td class="text-end">{{ "{:,.0f}".format(t['체결수량']) }}</td>
+                <td class="text-end">
+                    {% if currency == 'USD' %}
+                        ${{ "{:,.2f}".format(t['체결금액']) }}
+                    {% else %}
+                        {{ "{:,.0f}".format(t['체결금액']) }}
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</details>
 {% endif %}
 
 {% if holdings %}
