@@ -354,10 +354,10 @@
             <tr>
                 <td>{{ loop.index }}</td>
                 <td class="text-center">
-                    {% if po['주문구분'] == '매도' %}
-                        <span class="badge bg-danger">매도</span>
-                    {% elif po['주문구분'] == '매수' %}
-                        <span class="badge bg-primary">매수</span>
+                    {% if po['주문구분'] == '매수' %}
+                        <span class="badge bg-danger">매수</span>
+                    {% elif po['주문구분'] == '매도' %}
+                        <span class="badge bg-primary">매도</span>
                     {% else %}
                         <span class="badge bg-secondary">{{ po['주문구분'] }}</span>
                     {% endif %}
