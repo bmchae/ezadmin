@@ -588,6 +588,9 @@ def index():
 
 @app.route("/portfolio/<name>")
 def portfolio_detail(name):
+    # 상세 페이지 진입 시마다 yaml 을 재스캔해 최신 정보 반영
+    global _portfolios
+    _portfolios = None
     portfolios = _get_portfolios()
     pf = None
     for p in portfolios:
