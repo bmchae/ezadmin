@@ -5,6 +5,8 @@ ezgain/ezinvest/ezsplit 프로젝트의 portfolio config 파일들을 스캔하�
 YAML 내용(shape)을 보고 포트폴리오 여부를 판별한다.
 """
 import os
+import re
+
 import yaml
 
 EZGAIN_ROOT   = os.path.expanduser("~/ez/ezgain")
@@ -257,9 +259,26 @@ def _build_portfolio_ref(cfg, fname, project, project_root, config_dir):
     if cfg.get("token_dir"):
         acct_cfg["token_dir"] = cfg["token_dir"]
 
+    # description 정규화: 표시 형식 "(project) <라벨>"
+    #  - ezgain: yaml 의 description 본문(앞 "(xxx)" prefix 가 있으면 제거 후 뒤 텍스트) 사용
+    #            예) "(bmchae) Active ETF" → "(ezgain) Active ETF"
+    #  - 그 외 : 파일명에서 portfolio-/kis-/kw-/upbit- 토큰을 제거한 짧은 식별자 사용
+    #            예) portfolio-bmchae-kis-kr → "(ezinvest) bmchae-kr"
+    desc_raw = (cfg.get("description") or "").strip()
+    if project == "ezgain" and desc_raw:
+        m = re.match(r"^\s*\([^)]+\)\s*(.+)$", desc_raw)
+        label = (m.group(1).strip() if m else desc_raw).strip()
+    else:
+        short = fname.replace(".yaml", "")
+        short = re.sub(r"^portfolio-", "", short)
+        short = re.sub(r"^(kis|kw|upbit)-", "", short)
+        short = re.sub(r"-(kis|kw|upbit)(?=-|$)", "", short)
+        label = short
+    description = f"({project}) {label}" if label else (desc_raw or fname)
+
     return {
         "name": fname.replace(".yaml", ""),
-        "description": cfg.get("description", fname),
+        "description": description,
         "owner": _detect_owner(fname, cfg, acct_cfg),
         "account_config_name": acct_file,
         "project": project,
