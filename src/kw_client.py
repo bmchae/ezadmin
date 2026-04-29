@@ -6,14 +6,19 @@
 
 ezsplit의 broker_kw.py 를 참고하되 ezadmin의 포트폴리오 포맷에 맞춰 단순화했다.
 """
+import hashlib
 import json
 import os
+import threading
 from datetime import datetime, timedelta
 
 import requests
 
 MOCK_URL = "https://mockapi.kiwoom.com"
 REAL_URL = "https://api.kiwoom.com"
+
+# 키움도 KIS 와 마찬가지로 동일 app_key 의 토큰을 공유하는게 안전.
+_TOKEN_ISSUE_LOCK = threading.Lock()
 
 
 class _KWTokenExpired(Exception):
@@ -54,66 +59,122 @@ def _token_path_legacy(project_root, cfg_name, acct_cfg=None):
     return os.path.join(_token_dir(project_root, acct_cfg), f"KW-{cfg_name}.json")
 
 
+def _app_key_hash(acct_cfg):
+    app_key = acct_cfg.get("app_key", "") or ""
+    if not app_key:
+        return ""
+    return hashlib.sha1(app_key.encode("utf-8")).hexdigest()[:10]
+
+
 def _load_cached_token(path):
+    """경로의 토큰 파일에서 유효한 토큰만 반환."""
+    rec = _read_token_record(path)
+    return rec["token"] if rec else None
+
+
+def _read_token_record(path):
+    """파일 전체 레코드: dict(token, expires, app_key_hash) 또는 None (만료/오류)."""
     if not os.path.exists(path):
         return None
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
         expires = datetime.fromisoformat(data["expires"])
-        if datetime.now() < expires:
-            return data["token"]
+        if datetime.now() >= expires:
+            return None
+        return {
+            "token": data["token"],
+            "expires": expires,
+            "app_key_hash": str(data.get("app_key_hash", "")),
+        }
     except Exception:
         return None
-    return None
 
 
-def _save_token(path, token, expires_at):
+def _save_token(path, token, expires_at, app_key_hash=""):
+    payload = {"token": token, "expires": expires_at.isoformat()}
+    if app_key_hash:
+        payload["app_key_hash"] = app_key_hash
     with open(path, "w", encoding="utf-8") as f:
-        json.dump({"token": token, "expires": expires_at.isoformat()}, f)
+        json.dump(payload, f)
+
+
+def _find_shared_token(token_dir, app_key_hash, suffix):
+    """동일 app_key_hash 의 형제 kw_*.token 파일에서 유효 토큰 검색."""
+    if not app_key_hash or not os.path.isdir(token_dir):
+        return None
+    target_suffix = f"{suffix}.token"
+    for fname in os.listdir(token_dir):
+        if not fname.startswith("kw_") or not fname.endswith(target_suffix):
+            continue
+        rec = _read_token_record(os.path.join(token_dir, fname))
+        if rec and rec["app_key_hash"] == app_key_hash:
+            return rec["token"]
+    return None
 
 
 def _get_token(acct_cfg, project_root, acct_config_name="", force_new=False):
     """
     Kiwoom OAuth 토큰을 반환. force_new=True면 강제 재발급.
+    동일 app_key 를 공유하는 형제 계좌 파일과 토큰 공유.
     Returns: (token, base_url)
     """
     base_url = MOCK_URL if acct_cfg.get("is_mock") else REAL_URL
     cfg_name = acct_config_name.replace(".yaml", "") if acct_config_name else "kw"
     new_path = _token_path_new(project_root, acct_cfg)
     legacy_path = _token_path_legacy(project_root, cfg_name, acct_cfg)
+    suffix = "_mock" if acct_cfg.get("is_mock") else ""
+    ak_hash = _app_key_hash(acct_cfg)
+    tdir = _token_dir(project_root, acct_cfg)
+
+    def _try_existing():
+        # 1) 자기 계좌 파일
+        t = _load_cached_token(new_path)
+        if t:
+            return t
+        # 2) 같은 app_key 의 형제 파일
+        t = _find_shared_token(tdir, ak_hash, suffix)
+        if t:
+            return t
+        # 3) 구 명명 (KW-<cfg>.json) fallback
+        t = _load_cached_token(legacy_path)
+        if t:
+            return t
+        return None
 
     if not force_new:
-        # 1) 신규 명명 우선
-        token = _load_cached_token(new_path)
-        if token:
-            return token, base_url
-        # 2) 구 명명 fallback — 만료될 때까지 호환
-        token = _load_cached_token(legacy_path)
+        token = _try_existing()
         if token:
             return token, base_url
 
-    res = requests.post(
-        f"{base_url}/oauth2/token",
-        headers={"content-type": "application/json"},
-        json={
-            "grant_type": "client_credentials",
-            "appkey": acct_cfg["app_key"],
-            "secretkey": acct_cfg["app_secret"],
-        },
-        timeout=10,
-    )
-    if res.status_code != 200:
-        raise Exception(f"Kiwoom 토큰 발급 실패: {res.status_code} {res.text}")
-    data = res.json()
-    token = data.get("token")
-    if not token:
-        raise Exception(f"Kiwoom 토큰 응답 오류: {data}")
-    expires_in = int(data.get("expires_in", 86400))
-    # 1시간 마진을 두고 만료 처리
-    expires_at = datetime.now() + timedelta(seconds=max(expires_in - 3600, 60))
-    _save_token(new_path, token, expires_at)
-    return token, base_url
+    # 발급 직렬화 (동시 호출 시 중복 발급 방지)
+    with _TOKEN_ISSUE_LOCK:
+        if not force_new:
+            token = _try_existing()
+            if token:
+                return token, base_url
+
+        res = requests.post(
+            f"{base_url}/oauth2/token",
+            headers={"content-type": "application/json"},
+            json={
+                "grant_type": "client_credentials",
+                "appkey": acct_cfg["app_key"],
+                "secretkey": acct_cfg["app_secret"],
+            },
+            timeout=10,
+        )
+        if res.status_code != 200:
+            raise Exception(f"Kiwoom 토큰 발급 실패: {res.status_code} {res.text}")
+        data = res.json()
+        token = data.get("token")
+        if not token:
+            raise Exception(f"Kiwoom 토큰 응답 오류: {data}")
+        expires_in = int(data.get("expires_in", 86400))
+        # 1시간 마진을 두고 만료 처리
+        expires_at = datetime.now() + timedelta(seconds=max(expires_in - 3600, 60))
+        _save_token(new_path, token, expires_at, ak_hash)
+        return token, base_url
 
 
 def _headers(token, app_key, app_secret, api_id=""):

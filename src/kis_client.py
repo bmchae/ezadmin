@@ -3,13 +3,19 @@ KIS Open API를 직접 호출하여 계좌 잔고를 조회한다.
 ezgain/ezinvest의 기존 모듈을 import하지 않고 독립적으로 동작한다.
 (기존 모듈은 글로벌 상태를 사용하여 여러 계좌를 동시에 조회할 수 없음)
 """
+import hashlib
 import json
 import os
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 
 import requests
 import yaml
+
+# KIS 토큰 발급은 app_key 당 1분에 1회로 제한 (EGW00133).
+# 동시 요청을 직렬화해 중복 발급을 방지.
+_TOKEN_ISSUE_LOCK = threading.Lock()
 
 
 def _read_token_file(path):
@@ -27,15 +33,77 @@ def _read_token_file(path):
     return None
 
 
+def _app_key_hash(acct_cfg):
+    """app_key 의 단축 해시 — 토큰 파일 내부에 저장해 형제 파일 식별 키로 사용."""
+    app_key = acct_cfg.get("my_app", "") or ""
+    if not app_key:
+        return ""
+    return hashlib.sha1(app_key.encode("utf-8")).hexdigest()[:10]
+
+
 def _token_path(token_dir, acct_cfg):
     """
-    신규 토큰 파일 경로: kis_<account_no>.token (실전) / kis_<account_no>_vps.token (모의).
-    한 계좌에 1개 파일을 두고 만료일은 파일 내부에 기록.
+    토큰 파일 경로: kis_<account>.token (실전) / kis_<account>_vps.token (모의).
+    한 계좌 = 한 파일.
+
+    KIS 는 app_key 단위로 1분당 1회만 토큰 발급(EGW00133)되므로, 같은 app_key 를
+    공유하는 여러 계좌가 동시에 발급을 시도하면 rate limit 에 걸린다.
+    이를 피하기 위해 파일 내부에 app_key_hash 를 함께 기록하고 (
+    _save_token_file), 자기 파일이 없으면 동일 hash 를 가진 형제 파일에서
+    토큰을 재사용한다 (_find_shared_token).
     """
     acct = acct_cfg.get("my_acct_stock", "") or "unknown"
     svr = acct_cfg.get("server", "prod")
     suffix = "" if svr == "prod" else "_vps"
     return os.path.join(token_dir, f"kis_{acct}{suffix}.token")
+
+
+def _save_token_file(path, token, valid_date, app_key_hash=""):
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(f"token: {token}\n")
+        f.write(f"valid-date: {valid_date}\n")
+        if app_key_hash:
+            f.write(f"app_key_hash: {app_key_hash}\n")
+
+
+def _read_token_record(path):
+    """
+    토큰 파일 전체 레코드 반환: dict(token, app_key_hash, valid_date) 또는 None.
+    만료 검사도 함께 수행.
+    """
+    try:
+        with open(path, encoding="utf-8") as f:
+            tkg = yaml.safe_load(f)
+        if not tkg or "token" not in tkg or "valid-date" not in tkg:
+            return None
+        exp_dt = datetime.strftime(tkg["valid-date"], "%Y-%m-%d %H:%M:%S")
+        now_dt = datetime.today().strftime("%Y-%m-%d %H:%M:%S")
+        if exp_dt <= now_dt:
+            return None
+        return {
+            "token": tkg["token"],
+            "app_key_hash": str(tkg.get("app_key_hash", "")),
+            "valid_date": tkg["valid-date"],
+        }
+    except Exception:
+        return None
+
+
+def _find_shared_token(token_dir, app_key_hash, suffix):
+    """
+    동일 app_key_hash 를 가진 형제 토큰 파일에서 유효 토큰 검색.
+    suffix: "" (prod) | "_vps" (vps) — 같은 환경끼리만 공유.
+    """
+    if not app_key_hash or not os.path.isdir(token_dir):
+        return None
+    target_suffix = f"{suffix}.token"
+    for fname in os.listdir(token_dir):
+        if not fname.startswith("kis_") or not fname.endswith(target_suffix):
+            continue
+        rec = _read_token_record(os.path.join(token_dir, fname))
+        if rec and rec["app_key_hash"] == app_key_hash:
+            return rec["token"]
+    return None
 
 
 def _find_existing_token(token_dir, cfg_name):
@@ -92,46 +160,60 @@ def _get_token(acct_cfg, project_root, acct_config_name="", force_new=False):
     os.makedirs(token_dir, exist_ok=True)
 
     new_path = _token_path(token_dir, acct_cfg)
+    suffix = "" if acct_cfg.get("server", "prod") == "prod" else "_vps"
+    ak_hash = _app_key_hash(acct_cfg)
+
+    def _try_existing():
+        # 1) 자기 계좌 파일 (kis_<acct>.token)
+        if os.path.exists(new_path):
+            t = _read_token_file(new_path)
+            if t:
+                return t
+        # 2) 같은 app_key 를 공유하는 형제 파일에서 유효 토큰 검색
+        t = _find_shared_token(token_dir, ak_hash, suffix)
+        if t:
+            return t
+        # 3) 더 오래된 KIS-<cfg>-<date> fallback
+        t = _find_existing_token(token_dir, cfg_name)
+        return t
 
     if not force_new:
-        # 1) 신규 명명 (kis_<acct>.token) 우선
-        if os.path.exists(new_path):
-            token = _read_token_file(new_path)
-            if token:
-                return token, base_url
-        # 2) 구 명명 (KIS-<cfg_name>-<date>) fallback — 만료될 때까지 호환
-        token = _find_existing_token(token_dir, cfg_name)
+        token = _try_existing()
         if token:
             return token, base_url
 
-    # 새 토큰 발급
-    url = f"{base_url}/oauth2/tokenP"
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "text/plain",
-        "charset": "UTF-8",
-        "User-Agent": acct_cfg.get("my_agent", ""),
-    }
-    body = {
-        "grant_type": "client_credentials",
-        "appkey": app_key,
-        "appsecret": app_secret,
-    }
-    res = requests.post(url, data=json.dumps(body), headers=headers)
-    if res.status_code != 200:
-        raise Exception(f"토큰 발급 실패: {res.status_code} {res.text}")
+    # 새 토큰 발급 — app_key 당 1분당 1회 제한이라 lock 으로 직렬화.
+    # lock 안에서 다시 한 번 캐시 확인(다른 스레드가 막 발급했을 수 있음).
+    with _TOKEN_ISSUE_LOCK:
+        if not force_new:
+            token = _try_existing()
+            if token:
+                return token, base_url
 
-    data = res.json()
-    new_token = data["access_token"]
-    expired = data["access_token_token_expired"]
+        url = f"{base_url}/oauth2/tokenP"
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "text/plain",
+            "charset": "UTF-8",
+            "User-Agent": acct_cfg.get("my_agent", ""),
+        }
+        body = {
+            "grant_type": "client_credentials",
+            "appkey": app_key,
+            "appsecret": app_secret,
+        }
+        res = requests.post(url, data=json.dumps(body), headers=headers)
+        if res.status_code != 200:
+            raise Exception(f"토큰 발급 실패: {res.status_code} {res.text}")
 
-    # 토큰 저장 — 신규 명명 (계좌번호 기반, 1계좌 1파일)
-    with open(new_path, "w", encoding="utf-8") as f:
+        data = res.json()
+        new_token = data["access_token"]
+        expired = data["access_token_token_expired"]
         valid_date = datetime.strptime(expired, "%Y-%m-%d %H:%M:%S")
-        f.write(f"token: {new_token}\n")
-        f.write(f"valid-date: {valid_date}\n")
 
-    return new_token, base_url
+        # 자기 계좌 파일에 저장 (app_key_hash 도 함께 기록 → 다음 호출 시 형제 식별용)
+        _save_token_file(new_path, new_token, valid_date, ak_hash)
+        return new_token, base_url
 
 
 def _retry_on_token_expiry(fn):
