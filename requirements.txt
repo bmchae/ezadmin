@@ -1,4 +1,5 @@
-flask
-werkzeug
-pyyaml
-requests
+flask>=3.0
+werkzeug>=3.0
+pyyaml>=6.0
+requests>=2.31
+pyjwt>=2.8     # Upbit REST 인증 (HS256 JWT 서명)

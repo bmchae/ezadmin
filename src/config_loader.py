@@ -349,6 +349,8 @@ def _scan_project(project, project_root):
     for fname in sorted(os.listdir(config_dir)):
         if not fname.endswith(".yaml"):
             continue
+        if fname.startswith("-"):     # '-' 로 시작하면 비활성 파일로 간주하여 skip
+            continue
         if "example" in fname.lower():
             continue
         fpath = os.path.join(config_dir, fname)
