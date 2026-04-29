@@ -244,7 +244,18 @@
         padding: 16px 0 4px;
     }
 </style>
-<h3 class="mb-4" style="letter-spacing: -0.022em;">포트폴리오 목록</h3>
+{% set _sort = sort_mode|default('portfolio') %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <h3 class="mb-0" style="letter-spacing: -0.022em;">포트폴리오 목록</h3>
+    <div class="btn-group btn-group-sm" role="group" aria-label="포트폴리오 정렬">
+        {% for opt, label in [('portfolio','포트폴리오'),('asset','총자산'),('cash','현금'),('realized','당일실현손익')] %}
+        <a href="?sort={{ opt }}"
+           class="btn btn-sm {{ 'btn-primary' if _sort == opt else 'btn-outline-primary' }}">
+            {{ label }}
+        </a>
+        {% endfor %}
+    </div>
+</div>
 
 {% for owner in owners %}
 {% set total = owner_totals.get(owner, 0) %}
@@ -278,9 +289,13 @@
     {% endif %}
 </div>
 <div class="row g-3 mb-3">
+{% set ns = namespace(prev_project=none) %}
 {% for pf in grouped[owner] %}
     {% set s = summaries.get(pf.name) %}
-    <div class="col-md-6 col-lg-4">
+    {% if _sort == 'portfolio' and ns.prev_project is not none and ns.prev_project != pf.project %}
+    <div class="w-100"></div>
+    {% endif %}
+    <div class="col-md-6 col-lg-4 col-xl-3">
         <a href="/portfolio/{{ pf.name }}" class="card h-100 text-decoration-none text-reset portfolio-card project-{{ pf.project }}">
             <div class="card-body">
                 <h6 class="card-title mb-2">{{ pf.description }}</h6>
@@ -383,6 +398,7 @@
             </div>
         </a>
     </div>
+    {% set ns.prev_project = pf.project %}
 {% endfor %}
 </div>
 {% endfor %}

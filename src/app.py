@@ -563,14 +563,32 @@ def index():
                 total += s.get("총자산", 0) or 0
         owner_totals[owner] = total
 
-    # 오너 내 포트폴리오 카드 정렬: 총자산 많은 순 (조회 실패는 0으로 → 끝)
-    def _pf_total(pf):
+    # 오너 내 포트폴리오 카드 정렬 — 쿼리 ?sort= 으로 결정
+    sort_mode = request.args.get("sort", "portfolio")
+    if sort_mode not in ("portfolio", "asset", "cash", "realized"):
+        sort_mode = "portfolio"
+
+    def _pf_metric(pf, key):
+        """key: '총자산' | '현금' | '당일실현손익'"""
         s = summaries.get(pf["name"])
         if not (s and s.get("ok")):
             return 0
-        return s.get("총자산", 0) or 0
+        v = s.get(key)
+        return 0 if v is None else v
+
+    PROJECT_ORDER = {"ezgain": 0, "ezinvest": 1, "ezsplit": 2, "ezadmin": 3}
     for owner in grouped:
-        grouped[owner].sort(key=lambda p: -_pf_total(p))
+        if sort_mode == "asset":
+            grouped[owner].sort(key=lambda p: -_pf_metric(p, "총자산"))
+        elif sort_mode == "cash":
+            grouped[owner].sort(key=lambda p: -_pf_metric(p, "현금"))
+        elif sort_mode == "realized":
+            grouped[owner].sort(key=lambda p: -_pf_metric(p, "당일실현손익"))
+        else:  # portfolio: 프로젝트 순 → 내부에서 총자산 내림차순
+            grouped[owner].sort(key=lambda p: (
+                PROJECT_ORDER.get(p.get("project"), 99),
+                -_pf_metric(p, "총자산"),
+            ))
 
     # 포트폴리오별 30일 차트 데이터
     charts = {pf["name"]: _build_chart(pf) for pf in portfolios}
@@ -583,7 +601,8 @@ def index():
 
     return render_template("index.html", grouped=grouped, owners=sorted_owners,
                            summaries=summaries, owner_totals=owner_totals,
-                           charts=charts, owner_charts=owner_charts)
+                           charts=charts, owner_charts=owner_charts,
+                           sort_mode=sort_mode)
 
 
 @app.route("/portfolio/<name>")
