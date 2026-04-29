@@ -40,6 +40,16 @@
     /* 종목 행 드로어 (클릭시 펼침) */
     .stock-row.is-tradable { cursor: pointer; }
     .stock-row.is-tradable:hover { background: rgba(13,110,253,0.04); }
+
+    /* 정렬 가능한 컬럼 헤더 */
+    th[data-sort] { cursor: pointer; user-select: none; position: relative; }
+    th[data-sort]:hover { background: rgba(13,110,253,0.08); }
+    th[data-sort] .sort-arrow {
+        font-size: 9px;
+        margin-left: 3px;
+        color: #0d6efd;
+        font-variant-numeric: tabular-nums;
+    }
     .stock-row.is-expanded { background: rgba(13,110,253,0.07) !important; }
     .stock-drawer td { padding: 0 !important; background: var(--apple-bg-card, #fafafa); }
     .stock-drawer-inner {
@@ -458,29 +468,39 @@
 <table class="table table-sm table-hover table-bordered align-middle">
     <thead>
         <tr>
-            <th>#</th>
-            <th>종목코드</th>
-            <th>종목명</th>
-            <th class="text-end">보유수량</th>
-            <th class="text-end">매수평균가</th>
-            <th class="text-end">현재가</th>
-            <th class="text-end">매수금액</th>
-            <th class="text-end">평가금액</th>
-            <th class="text-end">손익</th>
-            <th class="text-end">수익률</th>
-            <th class="text-end">당일손익</th>
-            <th class="text-end">당일등락률</th>
-            <th class="text-end">비중(%)</th>
-            <th class="text-end">비중차이(%)</th>
+            <th data-sort="idx" data-sort-type="number">#</th>
+            <th data-sort="code" data-sort-type="text">종목코드</th>
+            <th data-sort="name" data-sort-type="text">종목명</th>
+            <th class="text-end" data-sort="qty" data-sort-type="number">보유수량</th>
+            <th class="text-end" data-sort="avgp" data-sort-type="number">매수평균가</th>
+            <th class="text-end" data-sort="current" data-sort-type="number">현재가</th>
+            <th class="text-end" data-sort="buyamt" data-sort-type="number">매수금액</th>
+            <th class="text-end" data-sort="evalamt" data-sort-type="number">평가금액</th>
+            <th class="text-end" data-sort="pnl" data-sort-type="number">손익</th>
+            <th class="text-end" data-sort="rate" data-sort-type="number">수익률</th>
+            <th class="text-end" data-sort="daypnl" data-sort-type="number">당일손익</th>
+            <th class="text-end" data-sort="dayrate" data-sort-type="number">당일등락률</th>
+            <th class="text-end" data-sort="weight" data-sort-type="number">비중(%)</th>
+            <th class="text-end" data-sort="weightdiff" data-sort-type="number">비중차이(%)</th>
         </tr>
     </thead>
     <tbody>
     {% for h in holdings %}
         <tr class="stock-row {{ 'is-tradable' if pf.broker in ('kis', 'kw') else '' }}"
+            data-idx="{{ loop.index }}"
             data-code="{{ h['종목코드'] }}"
             data-name="{{ h['종목명'] }}"
-            data-qty="{{ h['보유수량']|int }}"
-            data-avgp="{{ h['매수평균가'] }}"
+            data-qty="{{ h['보유수량']|float }}"
+            data-avgp="{{ h['매수평균가']|float }}"
+            data-current="{{ h['현재가']|float }}"
+            data-buyamt="{{ h['매수금액']|float }}"
+            data-evalamt="{{ h['평가금액']|float }}"
+            data-pnl="{{ h['손익금액']|float }}"
+            data-rate="{{ h['수익률']|float }}"
+            data-daypnl="{{ h.get('당일손익금액') if h.get('당일손익금액') is not none else '' }}"
+            data-dayrate="{{ h.get('당일수익률') if h.get('당일수익률') is not none else '' }}"
+            data-weight="{{ h.get('비중', 0)|float }}"
+            data-weightdiff="{{ h.get('비중차이', 0)|float }}"
             data-excg="{{ h.get('거래소코드', '') }}">
             <td>{{ loop.index }}</td>
             <td><code>{{ h['종목코드'] }}</code></td>
@@ -1043,6 +1063,78 @@ function cancelOrder(code, name, orderNo, qty, price, excgCd, krxOrgno, btn) {
         if (e.key === 'Escape' && currentRow) closeDrawer();
     });
 })();
+
+
+// ─────────────────────────────────────────────────
+// 종목 테이블 컬럼 정렬 (브로커 무관, 모든 포트폴리오에서 동작)
+// ─────────────────────────────────────────────────
+(function () {
+    const headers = document.querySelectorAll('thead th[data-sort]');
+    if (headers.length === 0) return;
+    const drawer = document.getElementById('stock-drawer');
+    let sortKey = null;
+    let sortDir = -1;  // -1=desc, 1=asc
+
+    function compareRows(a, b, key, type) {
+        const av = a.dataset[key] ?? '';
+        const bv = b.dataset[key] ?? '';
+        // 빈값(당일손익 없는 종목 등) 은 항상 끝으로
+        const aEmpty = av === '';
+        const bEmpty = bv === '';
+        if (aEmpty && bEmpty) return 0;
+        if (aEmpty) return 1;
+        if (bEmpty) return -1;
+        if (type === 'number') {
+            return (parseFloat(av) - parseFloat(bv)) * sortDir;
+        }
+        return av.localeCompare(bv, 'ko') * sortDir;
+    }
+
+    function applySort() {
+        if (!sortKey) return;
+        const tbody = headers[0].closest('table').querySelector('tbody');
+        if (!tbody) return;
+        const th = document.querySelector(`thead th[data-sort="${sortKey}"]`);
+        const type = (th && th.dataset.sortType) || 'text';
+        const rows = Array.from(tbody.querySelectorAll('tr.stock-row'));
+        rows.sort((a, b) => compareRows(a, b, sortKey, type));
+        rows.forEach(r => tbody.appendChild(r));
+        // drawer 가 펼쳐져 있으면 닫고 끝으로 이동
+        if (drawer) {
+            const expanded = tbody.querySelector('tr.stock-row.is-expanded');
+            if (expanded) expanded.classList.remove('is-expanded');
+            drawer.style.display = 'none';
+            tbody.appendChild(drawer);
+        }
+    }
+
+    function updateArrows() {
+        document.querySelectorAll('thead th[data-sort] .sort-arrow').forEach(el => el.remove());
+        if (!sortKey) return;
+        const th = document.querySelector(`thead th[data-sort="${sortKey}"]`);
+        if (!th) return;
+        const arr = document.createElement('span');
+        arr.className = 'sort-arrow';
+        arr.textContent = sortDir === -1 ? '▼' : '▲';
+        th.appendChild(arr);
+    }
+
+    headers.forEach(th => {
+        th.addEventListener('click', () => {
+            const key = th.dataset.sort;
+            const type = th.dataset.sortType || 'text';
+            if (sortKey === key) {
+                sortDir = -sortDir;
+            } else {
+                sortKey = key;
+                sortDir = (type === 'number') ? -1 : 1;
+            }
+            applySort();
+            updateArrows();
+        });
+    });
+})();
+
 
 function quickSell(code, name, qty, excgCd, percent, btn) {
     const sellQty = Math.floor(qty * percent / 100);
