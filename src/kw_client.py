@@ -565,6 +565,144 @@ def get_today_trades_domestic(acct_cfg, project_root, acct_config_name=""):
 
 
 @_retry_on_token_expiry
+def place_buy_order(acct_cfg, project_root, acct_config_name, stock_code, qty, price):
+    """
+    Kiwoom 국내 주식 매수주문 (kt10000).
+    Returns: {"주문번호": str}
+    """
+    token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    body = {
+        "dmst_stex_tp": "KRX",
+        "stk_cd": str(stock_code),
+        "ord_qty": str(int(qty)),
+        "ord_uv": str(int(price)),
+        "trde_tp": "0",      # 0=보통 (지정가)
+        "cond_uv": "",
+    }
+    data = _kw_post(base_url, token,
+                    acct_cfg["app_key"], acct_cfg["app_secret"],
+                    "kt10000", body, path="/api/dostk/ordr")
+    return {"주문번호": str(data.get("ord_no") or data.get("odno") or "")}
+
+
+@_retry_on_token_expiry
+def place_sell_order(acct_cfg, project_root, acct_config_name, stock_code, qty, price):
+    """
+    Kiwoom 국내 주식 매도주문 (kt10001).
+    Returns: {"주문번호": str}
+    """
+    token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    body = {
+        "dmst_stex_tp": "KRX",
+        "stk_cd": str(stock_code),
+        "ord_qty": str(int(qty)),
+        "ord_uv": str(int(price)),
+        "trde_tp": "0",
+        "cond_uv": "",
+    }
+    data = _kw_post(base_url, token,
+                    acct_cfg["app_key"], acct_cfg["app_secret"],
+                    "kt10001", body, path="/api/dostk/ordr")
+    return {"주문번호": str(data.get("ord_no") or data.get("odno") or "")}
+
+
+@_retry_on_token_expiry
+def get_orderbook_domestic(acct_cfg, project_root, acct_config_name, stock_code):
+    """
+    Kiwoom 국내 10단계 호가 + 현재가 조회 (ka10004 주식호가요청).
+    Returns KIS get_orderbook_domestic 와 동일 dict 구조.
+    """
+    token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    body = {"stk_cd": str(stock_code)}
+    data = _kw_post(base_url, token,
+                    acct_cfg["app_key"], acct_cfg["app_secret"],
+                    "ka10004", body, path="/api/dostk/mrkcond")
+
+    def _i(v):
+        try:
+            return int(float(str(v or 0).replace(",", "").replace("+", "").replace("-", "-")))
+        except (TypeError, ValueError):
+            return 0
+
+    def _abs_i(v):
+        try:
+            return abs(int(float(str(v or 0).replace(",", "").replace("+", ""))))
+        except (TypeError, ValueError):
+            return 0
+
+    # 매도호가: sel_pric_1~10 (낮은가→높은가 = 1→10), 수량 sel_req_1~10
+    asks = []
+    for i in range(1, 11):
+        # 키움 호가는 1=가까운 → 10=먼. KIS 와 동일하게 1->10 순으로.
+        p = _i(_kw_pick(data, f"sel_pric_{i}", f"sel_fpr_bid_{i}", default=0))
+        q = _abs_i(_kw_pick(data, f"sel_req_{i}", f"sel_fpr_req_{i}", default=0))
+        asks.append((p, q))
+    bids = []
+    for i in range(1, 11):
+        p = _i(_kw_pick(data, f"buy_pric_{i}", f"buy_fpr_bid_{i}", default=0))
+        q = _abs_i(_kw_pick(data, f"buy_req_{i}", f"buy_fpr_req_{i}", default=0))
+        bids.append((p, q))
+
+    return {
+        "current": _i(_kw_pick(data, "cur_prc", "stck_prpr", default=0)),
+        "change": _i(_kw_pick(data, "pred_pre", "prdy_vrss", default=0)),
+        "change_rate": float(_f(_kw_pick(data, "prc_chg_rt", "prdy_ctrt", default=0))),
+        "open": _i(_kw_pick(data, "open_pric", "stck_oprc", default=0)),
+        "high": _i(_kw_pick(data, "high_pric", "stck_hgpr", default=0)),
+        "low": _i(_kw_pick(data, "low_pric", "stck_lwpr", default=0)),
+        "asks": asks,
+        "bids": bids,
+    }
+
+
+@_retry_on_token_expiry
+def get_daily_chart_domestic(acct_cfg, project_root, acct_config_name, stock_code, days=120):
+    """
+    Kiwoom 국내 일봉 히스토리 (ka10081 주식일봉차트조회).
+    Returns: list[dict(date, open, high, low, close, volume)] 오래된→최신 순.
+    """
+    token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
+    today = datetime.now().strftime("%Y%m%d")
+    body = {
+        "stk_cd": str(stock_code),
+        "base_dt": today,
+        "upd_stkpc_tp": "1",   # 1=수정주가
+    }
+    data = _kw_post(base_url, token,
+                    acct_cfg["app_key"], acct_cfg["app_secret"],
+                    "ka10081", body, path="/api/dostk/chart")
+
+    rows = (data.get("stk_dt_pole_chart_qry") or data.get("output") or data.get("list")
+            or data.get("output2") or [])
+
+    def _i(v):
+        try:
+            return int(float(str(v or 0).replace(",", "").replace("+", "").replace("--", "-")))
+        except (TypeError, ValueError):
+            return 0
+
+    out = []
+    for r in rows:
+        dt = str(_kw_pick(r, "dt", "date", "stck_bsop_date", default="") or "")
+        if len(dt) == 8 and dt.isdigit():
+            iso = f"{dt[:4]}-{dt[4:6]}-{dt[6:]}"
+        else:
+            iso = dt
+        if not iso:
+            continue
+        out.append({
+            "date": iso,
+            "open":  _i(_kw_pick(r, "open_pric", "stck_oprc", default=0)),
+            "high":  _i(_kw_pick(r, "high_pric", "stck_hgpr", default=0)),
+            "low":   _i(_kw_pick(r, "low_pric",  "stck_lwpr", default=0)),
+            "close": _i(_kw_pick(r, "cur_prc", "stck_clpr", default=0)),
+            "volume": _i(_kw_pick(r, "trde_qty", "acml_vol", default=0)),
+        })
+    out.sort(key=lambda x: x["date"])  # 오래된 → 최신
+    return out[-days:]
+
+
+@_retry_on_token_expiry
 def cancel_order(acct_cfg, project_root, acct_config_name, order_no, stk_cd, qty=0):
     """
     Kiwoom 국내 주문 취소 (kt10003 주식주문취소요청).

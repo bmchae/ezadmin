@@ -688,7 +688,11 @@ def sell_order(name):
 
     try:
         acct_name = pf.get("account_config_name", "")
-        if pf["market"] == "us":
+        broker = pf.get("broker", "kis")
+        if broker == "kw":
+            result = kw_client.place_sell_order(pf["account_cfg"], pf["project_root"], acct_name,
+                                                 code, qty, int(price))
+        elif pf["market"] == "us":
             excg_cd = body.get("excg_cd", "")
             result = place_sell_order_overseas(pf["account_cfg"], pf["project_root"], acct_name,
                                               code, excg_cd, qty, price)
@@ -769,8 +773,8 @@ def buy_order(name):
     pf = next((p for p in portfolios if p["name"] == name), None)
     if pf is None:
         return jsonify({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
-    if pf.get("broker") != "kis":
-        return jsonify({"ok": False, "error": "매수는 KIS 계좌만 지원합니다."})
+    if pf.get("broker") not in ("kis", "kw"):
+        return jsonify({"ok": False, "error": "매수는 KIS / 키움 계좌만 지원합니다."})
 
     body = request.get_json() or {}
     code = body.get("code", "")
@@ -781,7 +785,11 @@ def buy_order(name):
 
     try:
         acct_name = pf.get("account_config_name", "")
-        if pf["market"] == "us":
+        broker = pf.get("broker", "kis")
+        if broker == "kw":
+            result = kw_client.place_buy_order(pf["account_cfg"], pf["project_root"], acct_name,
+                                                code, qty, int(price))
+        elif pf["market"] == "us":
             excg_cd = body.get("excg_cd", "")
             result = place_buy_order_overseas(pf["account_cfg"], pf["project_root"], acct_name,
                                               code, excg_cd, qty, price)
@@ -799,8 +807,8 @@ def get_orderbook(name):
     pf = next((p for p in portfolios if p["name"] == name), None)
     if pf is None:
         return jsonify({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
-    if pf.get("broker") != "kis":
-        return jsonify({"ok": False, "error": "호가 조회는 KIS 계좌만 지원합니다."})
+    if pf.get("broker") not in ("kis", "kw"):
+        return jsonify({"ok": False, "error": "호가 조회는 KIS / 키움 계좌만 지원합니다."})
 
     code = request.args.get("code", "")
     excg_cd = request.args.get("excg_cd", "")
@@ -809,7 +817,10 @@ def get_orderbook(name):
 
     try:
         acct_name = pf.get("account_config_name", "")
-        if pf["market"] == "us":
+        broker = pf.get("broker", "kis")
+        if broker == "kw":
+            data = kw_client.get_orderbook_domestic(pf["account_cfg"], pf["project_root"], acct_name, code)
+        elif pf["market"] == "us":
             data = get_orderbook_overseas(pf["account_cfg"], pf["project_root"], acct_name, code, excg_cd)
         else:
             data = get_orderbook_domestic(pf["account_cfg"], pf["project_root"], acct_name, code)
@@ -825,8 +836,8 @@ def get_chart(name):
     pf = next((p for p in portfolios if p["name"] == name), None)
     if pf is None:
         return jsonify({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
-    if pf.get("broker") != "kis":
-        return jsonify({"ok": False, "error": "차트 조회는 KIS 계좌만 지원합니다."})
+    if pf.get("broker") not in ("kis", "kw"):
+        return jsonify({"ok": False, "error": "차트 조회는 KIS / 키움 계좌만 지원합니다."})
 
     code = request.args.get("code", "")
     excg_cd = request.args.get("excg_cd", "")
@@ -839,7 +850,11 @@ def get_chart(name):
 
     try:
         acct_name = pf.get("account_config_name", "")
-        if pf["market"] == "us":
+        broker = pf.get("broker", "kis")
+        if broker == "kw":
+            candles = kw_client.get_daily_chart_domestic(pf["account_cfg"], pf["project_root"], acct_name,
+                                                          code, days=days)
+        elif pf["market"] == "us":
             candles = get_daily_chart_overseas(pf["account_cfg"], pf["project_root"], acct_name,
                                                 code, excg_cd, days=days)
         else:

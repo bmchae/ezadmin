@@ -38,8 +38,8 @@
     .today-trades > summary:hover { color: var(--bs-primary, #0d6efd); }
 
     /* 종목 행 드로어 (클릭시 펼침) */
-    .stock-row.is-kis { cursor: pointer; }
-    .stock-row.is-kis:hover { background: rgba(13,110,253,0.04); }
+    .stock-row.is-tradable { cursor: pointer; }
+    .stock-row.is-tradable:hover { background: rgba(13,110,253,0.04); }
     .stock-row.is-expanded { background: rgba(13,110,253,0.07) !important; }
     .stock-drawer td { padding: 0 !important; background: var(--apple-bg-card, #fafafa); }
     .stock-drawer-inner {
@@ -476,7 +476,7 @@
     </thead>
     <tbody>
     {% for h in holdings %}
-        <tr class="stock-row {{ 'is-kis' if pf.broker == 'kis' else '' }}"
+        <tr class="stock-row {{ 'is-tradable' if pf.broker in ('kis', 'kw') else '' }}"
             data-code="{{ h['종목코드'] }}"
             data-name="{{ h['종목명'] }}"
             data-qty="{{ h['보유수량']|int }}"
@@ -713,7 +713,7 @@ function cancelOrder(code, name, orderNo, qty, price, excgCd, krxOrgno, btn) {
 // 종목 드로어 (클릭 확장)
 // ─────────────────────────────────────────────────
 (function () {
-    if (pfBroker !== 'kis') return;  // KIS 만 지원
+    if (pfBroker !== 'kis' && pfBroker !== 'kw') return;  // KIS / 키움 지원, Upbit 제외
 
     const drawer = document.getElementById('stock-drawer');
     if (!drawer) return;
@@ -997,7 +997,7 @@ function cancelOrder(code, name, orderNo, qty, price, excgCd, krxOrgno, btn) {
     document.getElementById('btn-sell').addEventListener('click', () => submitOrder('sell'));
 
     // 행 클릭 → 드로어 열기/닫기
-    document.querySelectorAll('tr.stock-row.is-kis').forEach(row => {
+    document.querySelectorAll('tr.stock-row.is-tradable').forEach(row => {
         row.addEventListener('click', (e) => {
             // 기존 매도% 버튼 등 행 내부 버튼 클릭은 드로어 토글에서 제외
             if (e.target.closest('button') || e.target.closest('a')) return;
