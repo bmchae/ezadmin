@@ -1,6 +1,6 @@
 """
-ezadmin - Portfolio Dashboard
-ezgain/ezinvest의 포트폴리오 계좌별 보유종목/잔고를 조회하는 웹 대시보드
+ezadmin - Portfolio Dashboard (FastAPI 포팅 버전)
+ezgain/ezinvest/ezsplit/ezadmin 의 포트폴리오 계좌별 보유종목/잔고를 조회하는 웹 대시보드.
 """
 import base64
 import hashlib
@@ -13,8 +13,10 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import quote
 
-from flask import (Flask, Response, render_template, request, jsonify,
-                   make_response, redirect, g)
+from fastapi import FastAPI, Request, Form
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from werkzeug.security import check_password_hash
 
 from config_loader import load_all_portfolios, KNOWN_OWNERS
@@ -37,13 +39,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _load_dotenv():
-    """
-    프로젝트 루트의 .env 파일을 로드한다.
-    - '#'로 시작하는 라인은 주석
-    - KEY=VALUE 형식, 값은 양쪽 공백 제거
-    - 값이 작은따옴표 또는 큰따옴표로 감싸져 있으면 따옴표 제거 (해시의 '$' 보호용)
-    - 이미 환경변수에 설정된 값은 덮어쓰지 않는다.
-    """
+    """프로젝트 루트의 .env 파일을 로드 (Flask 버전과 동일)."""
     env_path = os.path.join(PROJECT_ROOT, ".env")
     if not os.path.exists(env_path):
         return
@@ -64,9 +60,13 @@ def _load_dotenv():
 
 _load_dotenv()
 
-app = Flask(__name__,
-            template_folder=os.path.join(PROJECT_ROOT, "templates"),
-            static_folder=os.path.join(PROJECT_ROOT, "static"))
+app = FastAPI(title="ezadmin", docs_url=None, redoc_url=None)
+
+templates = Jinja2Templates(directory=os.path.join(PROJECT_ROOT, "templates"))
+
+_static_dir = os.path.join(PROJECT_ROOT, "static")
+if os.path.isdir(_static_dir):
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 init_db(PROJECT_ROOT)
 
@@ -82,17 +82,18 @@ API_PATH_SUFFIXES = ("/sell", "/cancel", "/askprice")
 API_PATH_EXACT = ("/reload",)
 
 
-def _client_ip():
-    """클라이언트 IP를 반환. TRUST_PROXY=1 이면 X-Forwarded-For 최초값 사용."""
+# ─────────────────────────────────────────────────
+# 요청 컨텍스트 헬퍼 (Starlette Request 기반)
+# ─────────────────────────────────────────────────
+def _client_ip(request: Request) -> str:
     if TRUST_PROXY:
-        xff = request.headers.get("X-Forwarded-For", "")
+        xff = request.headers.get("x-forwarded-for", "")
         if xff:
             return xff.split(",")[0].strip()
-    return request.remote_addr or ""
+    return (request.client.host if request.client else "") or ""
 
 
-def _is_lan(ip):
-    """localhost / RFC1918 사설 대역은 LAN으로 간주하여 인증 면제."""
+def _is_lan(ip: str) -> bool:
     if not ip:
         return False
     try:
@@ -102,29 +103,29 @@ def _is_lan(ip):
     return addr.is_loopback or addr.is_private or addr.is_link_local
 
 
-def _is_https():
-    """요청이 HTTPS인지 판단. TRUST_PROXY=1 일 때 X-Forwarded-Proto 사용."""
+def _is_https(request: Request) -> bool:
     if TRUST_PROXY:
-        return request.headers.get("X-Forwarded-Proto", "").lower() == "https"
-    return request.is_secure
+        return request.headers.get("x-forwarded-proto", "").lower() == "https"
+    return (request.url.scheme or "").lower() == "https"
 
 
-def _session_secret():
-    """JWT 서명키. ezsplit과 동일하게 WEB_AUTH_SECRET 우선, 없으면 PASSWORD_HASH 폴백."""
+def _session_secret() -> str:
     return os.environ.get("WEB_AUTH_SECRET") or AUTH_PASSWORD_HASH
 
 
-def _b64url_encode(data):
+# ─────────────────────────────────────────────────
+# JWT (HS256) — Flask 버전과 동일 포맷
+# ─────────────────────────────────────────────────
+def _b64url_encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
-def _b64url_decode(s):
+def _b64url_decode(s: str) -> bytes:
     pad = "=" * ((4 - len(s) % 4) % 4)
     return base64.urlsafe_b64decode(s + pad)
 
 
-def _jwt_encode(payload, secret):
-    """HS256 JWT 생성 (ezsplit의 jose와 호환)."""
+def _jwt_encode(payload: dict, secret: str) -> str:
     header = {"alg": "HS256", "typ": "JWT"}
     h = _b64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8"))
     p = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
@@ -133,8 +134,7 @@ def _jwt_encode(payload, secret):
     return f"{h}.{p}.{_b64url_encode(sig)}"
 
 
-def _jwt_decode(token, secret):
-    """HS256 JWT 검증 + exp 체크. 성공 시 payload dict, 실패 시 None."""
+def _jwt_decode(token: str, secret: str):
     if not token or not secret:
         return None
     parts = token.split(".")
@@ -159,134 +159,142 @@ def _jwt_decode(token, secret):
     return payload
 
 
-def _is_api_path(path):
-    """API 서버용 엔드포인트는 인증 면제 (web frontend만 보호)."""
+def _is_api_path(path: str) -> bool:
     if path in API_PATH_EXACT:
         return True
     return any(path.endswith(suf) for suf in API_PATH_SUFFIXES)
 
 
-def _set_session_cookie(resp, token, max_age):
-    resp.set_cookie(
+def _set_session_cookie(response: Response, token: str, max_age: int, secure: bool):
+    response.set_cookie(
         SESSION_COOKIE, token,
         max_age=max_age,
         httponly=True,
-        secure=_is_https(),
-        samesite="Lax",
+        secure=secure,
+        samesite="lax",
         path="/",
     )
 
 
-@app.before_request
-def _require_session():
-    """web frontend만 세션 쿠키로 보호. API 엔드포인트/LAN/공개경로는 통과."""
-    path = request.path
-    # 공개 경로: 로그인/로그아웃/정적 파일 + API 서버 엔드포인트
-    if (path in ("/login", "/logout")
-            or path.startswith("/static/")
-            or _is_api_path(path)):
-        return None
+# ─────────────────────────────────────────────────
+# 인증 미들웨어 (before/after_request 등가)
+# ─────────────────────────────────────────────────
+@app.middleware("http")
+async def session_middleware(request: Request, call_next):
+    """세션 검증 + 임계값 갱신을 한 미들웨어에서 처리."""
+    path = request.url.path
+    public = (
+        path in ("/login", "/logout")
+        or path.startswith("/static/")
+        or _is_api_path(path)
+    )
 
-    if _is_lan(_client_ip()):
-        return None
-
-    if not AUTH_USERNAME or not AUTH_PASSWORD_HASH:
-        return Response(
-            "외부 접근이 차단되어 있습니다. .env의 WEB_AUTH_USER / WEB_AUTH_PASSWORD_HASH를 설정하세요.",
-            status=503,
-            mimetype="text/plain; charset=utf-8",
-        )
-
-    secret = _session_secret()
-    if not secret:
-        return Response(
-            "서버 인증 설정 오류: WEB_AUTH_SECRET 또는 WEB_AUTH_PASSWORD_HASH 필요.",
-            status=503,
-            mimetype="text/plain; charset=utf-8",
-        )
-
-    token = request.cookies.get(SESSION_COOKIE, "")
-    payload = _jwt_decode(token, secret)
-    if payload and payload.get("sub"):
-        # 임계값 갱신: exp 까지 12시간 미만 남았으면 토큰 재발급 (after_request 에서 쿠키 set)
-        exp = payload.get("exp", 0)
-        now = int(time.time())
-        if isinstance(exp, (int, float)) and exp - now < SESSION_REFRESH_THRESHOLD:
-            new_token = _jwt_encode(
-                {"sub": payload["sub"], "iat": now, "exp": now + SESSION_TTL},
-                secret,
+    new_refresh_token = None
+    if not public and not _is_lan(_client_ip(request)):
+        if not AUTH_USERNAME or not AUTH_PASSWORD_HASH:
+            return Response(
+                "외부 접근이 차단되어 있습니다. .env의 WEB_AUTH_USER / WEB_AUTH_PASSWORD_HASH를 설정하세요.",
+                status_code=503,
+                media_type="text/plain; charset=utf-8",
             )
-            g._refresh_token = new_token
-        return None
+        secret = _session_secret()
+        if not secret:
+            return Response(
+                "서버 인증 설정 오류: WEB_AUTH_SECRET 또는 WEB_AUTH_PASSWORD_HASH 필요.",
+                status_code=503,
+                media_type="text/plain; charset=utf-8",
+            )
 
-    # 인증 실패 → 로그인 페이지로
-    next_url = request.full_path.rstrip("?") if request.query_string else request.path
-    return redirect(f"/login?next={quote(next_url)}")
+        token = request.cookies.get(SESSION_COOKIE, "")
+        payload = _jwt_decode(token, secret)
+        if payload and payload.get("sub"):
+            exp = payload.get("exp", 0)
+            now = int(time.time())
+            if isinstance(exp, (int, float)) and exp - now < SESSION_REFRESH_THRESHOLD:
+                new_refresh_token = _jwt_encode(
+                    {"sub": payload["sub"], "iat": now, "exp": now + SESSION_TTL},
+                    secret,
+                )
+        else:
+            qs = request.url.query
+            next_url = f"{path}?{qs}" if qs else path
+            return RedirectResponse(f"/login?next={quote(next_url)}", status_code=302)
+
+    response = await call_next(request)
+    if new_refresh_token:
+        _set_session_cookie(response, new_refresh_token, SESSION_TTL, _is_https(request))
+    return response
 
 
-@app.after_request
-def _refresh_session_cookie(resp):
-    """_require_session 에서 임계값 미만이라 발급해둔 새 토큰을 쿠키로 set."""
-    new_token = getattr(g, "_refresh_token", None)
-    if new_token:
-        _set_session_cookie(resp, new_token, SESSION_TTL)
-    return resp
+# ─────────────────────────────────────────────────
+# 로그인 / 로그아웃
+# ─────────────────────────────────────────────────
+@app.get("/login", response_class=HTMLResponse)
+def login_form(request: Request, next: str = "/"):
+    next_url = next.strip()
+    if not next_url.startswith("/"):
+        next_url = "/"
+    return templates.TemplateResponse(
+        "login.html",
+        {"request": request, "error": None, "next_url": next_url},
+    )
 
 
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    """로그인 폼 / 자격 검증 후 JWT 쿠키 발급."""
-    next_url = (request.values.get("next") or "/").strip()
+@app.post("/login")
+async def login_submit(
+    request: Request,
+    next: str = Form("/"),
+    username: str = Form(""),
+    password: str = Form(""),
+):
+    next_url = (next or "/").strip()
     if not next_url.startswith("/"):
         next_url = "/"
 
-    if request.method == "GET":
-        return render_template("login.html", error=None, next_url=next_url)
-
-    username = (request.form.get("username") or "").strip()
-    password = request.form.get("password") or ""
+    def _err(msg: str, status: int):
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "error": msg, "next_url": next_url},
+            status_code=status,
+        )
 
     if not AUTH_USERNAME or not AUTH_PASSWORD_HASH:
-        return render_template("login.html",
-                               error="서버 인증이 설정되지 않았습니다.",
-                               next_url=next_url), 503
+        return _err("서버 인증이 설정되지 않았습니다.", 503)
 
-    user_ok = hmac.compare_digest(username, AUTH_USERNAME)
+    user_ok = hmac.compare_digest(username.strip(), AUTH_USERNAME)
     try:
         pass_ok = check_password_hash(AUTH_PASSWORD_HASH, password)
     except (ValueError, TypeError):
         pass_ok = False
     if not (user_ok and pass_ok):
-        return render_template("login.html",
-                               error="아이디 또는 비밀번호가 올바르지 않습니다.",
-                               next_url=next_url), 401
+        return _err("아이디 또는 비밀번호가 올바르지 않습니다.", 401)
 
     secret = _session_secret()
     if not secret:
-        return render_template("login.html",
-                               error="서버 설정 오류 (WEB_AUTH_SECRET).",
-                               next_url=next_url), 503
+        return _err("서버 설정 오류 (WEB_AUTH_SECRET).", 503)
 
     now = int(time.time())
-    token = _jwt_encode({"sub": username, "iat": now, "exp": now + SESSION_TTL}, secret)
+    token = _jwt_encode({"sub": username.strip(), "iat": now, "exp": now + SESSION_TTL}, secret)
 
-    resp = make_response(redirect(next_url))
-    _set_session_cookie(resp, token, SESSION_TTL)
+    # POST → GET redirect 는 303 see other
+    resp = RedirectResponse(next_url, status_code=303)
+    _set_session_cookie(resp, token, SESSION_TTL, _is_https(request))
     return resp
 
 
-@app.route("/logout", methods=["GET", "POST"])
-def logout():
-    resp = make_response(redirect("/login"))
-    _set_session_cookie(resp, "", 0)
+@app.get("/logout")
+@app.post("/logout")
+def logout(request: Request):
+    resp = RedirectResponse("/login", status_code=303)
+    _set_session_cookie(resp, "", 0, _is_https(request))
     return resp
 
 
-# 포트폴리오 목록 캐시 (앱 시작 시 로드)
+# ─────────────────────────────────────────────────
+# 포트폴리오 데이터 캐시
+# ─────────────────────────────────────────────────
 _portfolios = None
-
-# 포트폴리오 요약 캐시: name -> (timestamp, summary_dict). TTL 5분.
-_summary_cache = {}
+_summary_cache = {}     # name -> (timestamp, summary_dict)
 SUMMARY_TTL = 60
 
 
@@ -298,7 +306,7 @@ def _get_portfolios():
 
 
 def _fetch_balance(pf):
-    """broker에 따라 KIS / Kiwoom / Upbit 잔고 조회를 호출한다."""
+    """broker 별 잔고 조회 디스패치."""
     broker = pf.get("broker", "kis")
     acct_name = pf.get("account_config_name", "")
     is_us = pf["market"] == "us"
@@ -312,22 +320,15 @@ def _fetch_balance(pf):
 
 
 def _fetch_list_summary(pf):
-    """
-    포트폴리오 리스트 카드에 표시할 요약을 조회한다.
-    국내/해외 통화 통일 위해 해외는 원화 환산값을 사용한다.
-    Kiwoom 해외는 환율 정보가 없어 원화 환산 불가 → USD 값을 그대로 사용 (참고용).
-    당일 실현손익은 KIS 국내 실전계좌에서만 지원하며, 그 외에는 None.
-    """
+    """포트폴리오 카드용 요약 (해외는 원화 환산 우선)."""
     try:
         holdings, summary = _fetch_balance(pf)
         if pf["market"] == "us":
-            # 원화 환산값이 있으면 사용 (KIS), 없으면 USD값 fallback (Kiwoom)
             pchs = summary.get("원화총매수금액") or summary.get("총매수금액") or 0
             evlu = summary.get("원화총평가금액") or summary.get("총평가금액") or 0
             pnl  = summary.get("원화총손익금액") or summary.get("총손익금액") or 0
             rt   = summary.get("원화총수익률") or summary.get("총수익률") or 0
             cash = summary.get("원화예수금") or 0
-            # KIS 가 직접 제공하는 "총자산" 이 있으면 그 값을 써서 증권사 HTS 와 동일하게 맞춘다.
             krw_tot = summary.get("원화총자산") or 0
         else:
             pchs = summary.get("총매수금액", 0) or 0
@@ -337,7 +338,6 @@ def _fetch_list_summary(pf):
             cash = summary.get("D+2예수금", 0) or 0
             krw_tot = 0
 
-        # 당일 실현손익: broker + market 조합별 분기
         today_rlz = None
         broker = pf.get("broker", "kis")
         market = pf["market"]
@@ -371,7 +371,6 @@ def _fetch_list_summary(pf):
             "수익률": rt,
             "당일실현손익": today_rlz,
         }
-        # 일별 스냅샷 저장 (실패해도 무시)
         try:
             upsert_today(PROJECT_ROOT, pf["name"], result["총자산"], today_rlz)
         except Exception as e:
@@ -393,14 +392,12 @@ def _get_cached_summary(pf):
     return result
 
 
+# ─────────────────────────────────────────────────
+# SVG 차트 빌더
+# ─────────────────────────────────────────────────
 def _chart_from_rows(rows, w=300, h=56):
-    """
-    rows = [(date, asset_or_None, realized_or_None), ...] 에서 SVG 차트 데이터 dict 생성.
-    포트폴리오/오너 모두에서 공유 사용.
-    """
     if not rows:
         return None
-
     assets = [(d, a) for d, a, _ in rows if a is not None]
     if len(assets) < 2:
         return None
@@ -416,16 +413,14 @@ def _chart_from_rows(rows, w=300, h=56):
     def x(i):
         return i / (n - 1) * w if n > 1 else w / 2
 
-    # 상단 70% 는 area, 하단 30% 는 bar 여유
     area_top_pad = 4
     area_h = h * 0.70
-    mid = h * 0.72  # bar zero line
-    bar_max_h = h - mid - 2  # 하단 공간에 맞춰
+    mid = h * 0.72
+    bar_max_h = h - mid - 2
 
     def y_area(v):
         return area_top_pad + (1 - (v - min_a) / span_a) * (area_h - area_top_pad)
 
-    # 좌표 세그먼트 (None 구간은 끊어서)
     segments = []
     cur = []
     for i, (_d, a, _r) in enumerate(rows):
@@ -438,14 +433,12 @@ def _chart_from_rows(rows, w=300, h=56):
     if len(cur) >= 2:
         segments.append(cur)
 
-    area_parts = []
-    line_parts = []
+    area_parts, line_parts = [], []
     for seg in segments:
         pts = " L ".join(f"{px:.1f},{py:.1f}" for px, py in seg)
         area_parts.append(f"M {seg[0][0]:.1f},{h:.1f} L {pts} L {seg[-1][0]:.1f},{h:.1f} Z")
         line_parts.append(f"M {pts}")
 
-    # 바: realized_pl (위=수익 녹색, 아래=손실 빨강)
     bar_w = max(1.5, w / n * 0.55)
     bars = []
     for i, r in enumerate(realized):
@@ -460,7 +453,6 @@ def _chart_from_rows(rows, w=300, h=56):
         else:
             bars.append({"x": cx, "y": mid, "w": bar_w, "h": bh, "fill": "#ff3b30"})
 
-    # hover 툴팁용 포인트: 일자별 (x, y, date, asset, realized)
     points = []
     for i, (d, a, r) in enumerate(rows):
         pt = {
@@ -488,7 +480,6 @@ def _chart_from_rows(rows, w=300, h=56):
 
 
 def _build_chart(pf, days=30, w=300, h=56):
-    """단일 포트폴리오의 일별 스냅샷 → 차트 데이터."""
     try:
         rows = get_recent_snapshots(PROJECT_ROOT, pf["name"], days=days)
     except Exception:
@@ -497,15 +488,9 @@ def _build_chart(pf, days=30, w=300, h=56):
 
 
 def _build_owner_chart(owner_pfs, days=30, w=300, h=44):
-    """
-    오너 소속 포트폴리오들의 일별 스냅샷을 날짜별로 합산해 차트 데이터 생성.
-    - 자산 (total_asset): 같은 날짜 모두 sum
-    - 실현손익 (realized_pl): 같은 날짜 모두 sum
-    """
     if not owner_pfs:
         return None
-
-    by_date = {}  # date -> [asset_sum, realized_sum, has_any_asset]
+    by_date = {}
     for pf in owner_pfs:
         try:
             rows = get_recent_snapshots(PROJECT_ROOT, pf["name"], days=days)
@@ -518,33 +503,29 @@ def _build_owner_chart(owner_pfs, days=30, w=300, h=44):
                 entry[2] = True
             if r is not None:
                 entry[1] += r
-
     if not by_date:
         return None
-
     sorted_dates = sorted(by_date.keys())
     rows = [
-        (d,
-         by_date[d][0] if by_date[d][2] else None,
-         by_date[d][1])
+        (d, by_date[d][0] if by_date[d][2] else None, by_date[d][1])
         for d in sorted_dates
     ]
     return _chart_from_rows(rows, w=w, h=h)
 
 
-@app.route("/")
-def index():
+# ─────────────────────────────────────────────────
+# 라우트: 포트폴리오 목록 / 상세
+# ─────────────────────────────────────────────────
+@app.get("/", response_class=HTMLResponse)
+def index(request: Request, sort: str = "portfolio"):
     portfolios = _get_portfolios()
     grouped = {}
     for pf in portfolios:
         owner = pf.get("owner", "unknown")
         grouped.setdefault(owner, []).append(pf)
-    # 오너 정렬: config/owners.yaml 의 owners 순서 그대로.
-    # owners.yaml 에 없는 오너 (예: 'unknown') 는 끝에 이름순으로 추가.
     sorted_owners = [o for o in KNOWN_OWNERS if o in grouped]
     sorted_owners += sorted(o for o in grouped if o not in KNOWN_OWNERS)
 
-    # 요약 병렬 조회 (TTL 캐시 적용)
     summaries = {}
     if portfolios:
         workers = min(8, len(portfolios))
@@ -553,7 +534,6 @@ def index():
             for fut in as_completed(futures):
                 summaries[futures[fut]] = fut.result()
 
-    # 오너별 총자산 합계 (ok인 것만 합산)
     owner_totals = {}
     for owner, pfs in grouped.items():
         total = 0
@@ -563,13 +543,9 @@ def index():
                 total += s.get("총자산", 0) or 0
         owner_totals[owner] = total
 
-    # 오너 내 포트폴리오 카드 정렬 — 쿼리 ?sort= 으로 결정
-    sort_mode = request.args.get("sort", "portfolio")
-    if sort_mode not in ("portfolio", "asset", "cash", "realized"):
-        sort_mode = "portfolio"
+    sort_mode = sort if sort in ("portfolio", "asset", "cash", "realized") else "portfolio"
 
     def _pf_metric(pf, key):
-        """key: '총자산' | '현금' | '당일실현손익'"""
         s = summaries.get(pf["name"])
         if not (s and s.get("ok")):
             return 0
@@ -584,41 +560,46 @@ def index():
             grouped[owner].sort(key=lambda p: -_pf_metric(p, "현금"))
         elif sort_mode == "realized":
             grouped[owner].sort(key=lambda p: -_pf_metric(p, "당일실현손익"))
-        else:  # portfolio: 프로젝트 순 → 내부에서 총자산 내림차순
+        else:
             grouped[owner].sort(key=lambda p: (
                 PROJECT_ORDER.get(p.get("project"), 99),
                 -_pf_metric(p, "총자산"),
             ))
 
-    # 포트폴리오별 30일 차트 데이터
     charts = {pf["name"]: _build_chart(pf) for pf in portfolios}
-
-    # 오너별 1년 차트 데이터 (소속 포트폴리오들의 자산/실현손익 합산)
     owner_charts = {
         owner: _build_owner_chart(grouped[owner], days=365, w=720, h=80)
         for owner in sorted_owners
     }
 
-    return render_template("index.html", grouped=grouped, owners=sorted_owners,
-                           summaries=summaries, owner_totals=owner_totals,
-                           charts=charts, owner_charts=owner_charts,
-                           sort_mode=sort_mode)
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "grouped": grouped,
+            "owners": sorted_owners,
+            "summaries": summaries,
+            "owner_totals": owner_totals,
+            "charts": charts,
+            "owner_charts": owner_charts,
+            "sort_mode": sort_mode,
+        },
+    )
 
 
-@app.route("/portfolio/<name>")
-def portfolio_detail(name):
-    # 상세 페이지 진입 시마다 yaml 을 재스캔해 최신 정보 반영
+@app.get("/portfolio/{name}", response_class=HTMLResponse)
+def portfolio_detail(name: str, request: Request):
+    # 상세 진입 시마다 yaml 재스캔
     global _portfolios
     _portfolios = None
     portfolios = _get_portfolios()
-    pf = None
-    for p in portfolios:
-        if p["name"] == name:
-            pf = p
-            break
+    pf = next((p for p in portfolios if p["name"] == name), None)
 
     if pf is None:
-        return render_template("portfolio.html", pf=None, error="포트폴리오를 찾을 수 없습니다.")
+        return templates.TemplateResponse(
+            "portfolio.html",
+            {"request": request, "pf": None, "error": "포트폴리오를 찾을 수 없습니다."},
+        )
 
     try:
         acct_name = pf.get("account_config_name", "")
@@ -626,10 +607,12 @@ def portfolio_detail(name):
         currency = "USD" if pf["market"] == "us" else "KRW"
     except Exception as e:
         traceback.print_exc()
-        return render_template("portfolio.html", pf=pf, error=str(e),
-                               holdings=[], summary={}, currency="KRW")
+        return templates.TemplateResponse(
+            "portfolio.html",
+            {"request": request, "pf": pf, "error": str(e),
+             "holdings": [], "summary": {}, "currency": "KRW"},
+        )
 
-    # 비중, 비중차이 계산
     universe = pf["portfolio_cfg"].get("universe") or {}
     total_evlu = sum(h["평가금액"] for h in holdings) if holdings else 0
     for h in holdings:
@@ -640,10 +623,8 @@ def portfolio_detail(name):
         h["목표비중"] = target_weight
         h["비중차이"] = round(actual_weight - target_weight, 2)
 
-    # 수익률 높은 순으로 정렬
     holdings.sort(key=lambda h: h["수익률"], reverse=True)
 
-    # 미체결 주문 전체 조회 (매수+매도). Upbit 은 미지원이므로 빈 리스트.
     broker = pf.get("broker", "kis")
     if broker == "upbit":
         pending_orders = []
@@ -658,16 +639,13 @@ def portfolio_detail(name):
     else:
         pending_orders = get_pending_orders(pf["account_cfg"], pf["project_root"], acct_name)
 
-    # 종목명이 비어있는 경우 보유종목에서 보강
     holdings_name_map = {h["종목코드"]: h["종목명"] for h in holdings}
     for po in pending_orders:
         if not po.get("종목명"):
             po["종목명"] = holdings_name_map.get(po["종목코드"], po["종목코드"])
 
-    # holdings 행 렌더에 사용할 종목코드별 미체결 매도 주문 존재 여부
     pending_sell_codes = {po["종목코드"] for po in pending_orders if po.get("주문구분") == "매도"}
 
-    # 금일 체결 내역 조회 (KIS 국내·해외, KW 국내. Upbit 은 미지원)
     today_trades = []
     try:
         if broker == "kw":
@@ -681,39 +659,51 @@ def portfolio_detail(name):
         print(f"[today-trades] {pf.get('name','?')}: {e}")
         today_trades = []
 
-    resp = make_response(render_template("portfolio.html", pf=pf, holdings=holdings,
-                                         summary=summary, currency=currency, error=None,
-                                         pending_orders=pending_orders,
-                                         pending_sell_codes=pending_sell_codes,
-                                         today_trades=today_trades))
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
-    resp.headers["Pragma"] = "no-cache"
-    return resp
+    response = templates.TemplateResponse(
+        "portfolio.html",
+        {
+            "request": request,
+            "pf": pf, "holdings": holdings,
+            "summary": summary, "currency": currency, "error": None,
+            "pending_orders": pending_orders,
+            "pending_sell_codes": pending_sell_codes,
+            "today_trades": today_trades,
+        },
+    )
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 
-@app.route("/portfolio/<name>/sell", methods=["POST"])
-def sell_order(name):
+# ─────────────────────────────────────────────────
+# 라우트: 주문 / 호가 / 차트 / 체결조회
+# ─────────────────────────────────────────────────
+def _find_pf(name: str):
     portfolios = _get_portfolios()
-    pf = next((p for p in portfolios if p["name"] == name), None)
-    if pf is None:
-        return jsonify({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
-    if pf.get("broker") == "upbit":
-        return jsonify({"ok": False, "error": "Upbit 매도는 지원되지 않습니다."})
+    return next((p for p in portfolios if p["name"] == name), None)
 
-    body = request.get_json()
+
+@app.post("/portfolio/{name}/sell")
+async def sell_order(name: str, request: Request):
+    pf = _find_pf(name)
+    if pf is None:
+        return JSONResponse({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
+    if pf.get("broker") == "upbit":
+        return JSONResponse({"ok": False, "error": "Upbit 매도는 지원되지 않습니다."})
+
+    body = await request.json()
     code = body.get("code", "")
     qty = int(body.get("qty", 0))
     price = float(body.get("price", 0))
-
     if not code or qty <= 0 or price <= 0:
-        return jsonify({"ok": False, "error": "종목코드, 수량, 가격을 확인해주세요."})
+        return JSONResponse({"ok": False, "error": "종목코드, 수량, 가격을 확인해주세요."})
 
     try:
         acct_name = pf.get("account_config_name", "")
         broker = pf.get("broker", "kis")
         if broker == "kw":
             result = kw_client.place_sell_order(pf["account_cfg"], pf["project_root"], acct_name,
-                                                 code, qty, int(price))
+                                                code, qty, int(price))
         elif pf["market"] == "us":
             excg_cd = body.get("excg_cd", "")
             result = place_sell_order_overseas(pf["account_cfg"], pf["project_root"], acct_name,
@@ -721,28 +711,26 @@ def sell_order(name):
         else:
             result = place_sell_order(pf["account_cfg"], pf["project_root"], acct_name,
                                       code, qty, int(price))
-        return jsonify({"ok": True, "order_no": result.get("주문번호", "")})
+        return JSONResponse({"ok": True, "order_no": result.get("주문번호", "")})
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
-@app.route("/portfolio/<name>/cancel", methods=["POST"])
-def cancel_sell_order(name):
-    portfolios = _get_portfolios()
-    pf = next((p for p in portfolios if p["name"] == name), None)
+@app.post("/portfolio/{name}/cancel")
+async def cancel_order_route(name: str, request: Request):
+    pf = _find_pf(name)
     if pf is None:
-        return jsonify({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
+        return JSONResponse({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
     if pf.get("broker") == "upbit":
-        return jsonify({"ok": False, "error": "Upbit 주문 취소는 지원되지 않습니다."})
+        return JSONResponse({"ok": False, "error": "Upbit 주문 취소는 지원되지 않습니다."})
 
-    body = request.get_json()
+    body = await request.json()
     code = body.get("code", "")
     order_no = body.get("order_no", "")
     qty = int(body.get("qty", 0))
     price = float(body.get("price", 0))
-
     if not code or not order_no:
-        return jsonify({"ok": False, "error": "종목코드, 주문번호를 확인해주세요."})
+        return JSONResponse({"ok": False, "error": "종목코드, 주문번호를 확인해주세요."})
 
     try:
         acct_name = pf.get("account_config_name", "")
@@ -758,24 +746,20 @@ def cancel_sell_order(name):
             krx_orgno = body.get("krx_orgno", "")
             result = cancel_order(pf["account_cfg"], pf["project_root"], acct_name,
                                   order_no, krx_orgno, code, qty, price)
-        return jsonify({"ok": True, "order_no": result.get("주문번호", "")})
+        return JSONResponse({"ok": True, "order_no": result.get("주문번호", "")})
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
-@app.route("/portfolio/<name>/askprice")
-def get_askprice(name):
-    portfolios = _get_portfolios()
-    pf = next((p for p in portfolios if p["name"] == name), None)
+@app.get("/portfolio/{name}/askprice")
+def get_askprice(name: str, code: str = "", excg_cd: str = ""):
+    pf = _find_pf(name)
     if pf is None:
-        return jsonify({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
+        return JSONResponse({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
     if pf.get("broker") == "upbit":
-        return jsonify({"ok": False, "error": "Upbit 호가 조회는 지원되지 않습니다."})
-
-    code = request.args.get("code", "")
-    excg_cd = request.args.get("excg_cd", "")
+        return JSONResponse({"ok": False, "error": "Upbit 호가 조회는 지원되지 않습니다."})
     if not code:
-        return jsonify({"ok": False, "error": "종목코드 필요"})
+        return JSONResponse({"ok": False, "error": "종목코드 필요"})
 
     try:
         acct_name = pf.get("account_config_name", "")
@@ -783,27 +767,26 @@ def get_askprice(name):
             price = get_ask_price_overseas(pf["account_cfg"], pf["project_root"], acct_name, code, excg_cd)
         else:
             price = get_ask_price_domestic(pf["account_cfg"], pf["project_root"], acct_name, code)
-        return jsonify({"ok": True, "price": price})
+        return JSONResponse({"ok": True, "price": price})
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)})
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
-@app.route("/portfolio/<name>/buy", methods=["POST"])
-def buy_order(name):
-    portfolios = _get_portfolios()
-    pf = next((p for p in portfolios if p["name"] == name), None)
+@app.post("/portfolio/{name}/buy")
+async def buy_order(name: str, request: Request):
+    pf = _find_pf(name)
     if pf is None:
-        return jsonify({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
+        return JSONResponse({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
     if pf.get("broker") not in ("kis", "kw"):
-        return jsonify({"ok": False, "error": "매수는 KIS / 키움 계좌만 지원합니다."})
+        return JSONResponse({"ok": False, "error": "매수는 KIS / 키움 계좌만 지원합니다."})
 
-    body = request.get_json() or {}
+    body = await request.json() or {}
     code = body.get("code", "")
     qty = int(body.get("qty", 0))
     price = float(body.get("price", 0))
     if not code or qty <= 0 or price <= 0:
-        return jsonify({"ok": False, "error": "종목코드, 수량, 가격을 확인해주세요."})
+        return JSONResponse({"ok": False, "error": "종목코드, 수량, 가격을 확인해주세요."})
 
     try:
         acct_name = pf.get("account_config_name", "")
@@ -818,24 +801,20 @@ def buy_order(name):
         else:
             result = place_buy_order(pf["account_cfg"], pf["project_root"], acct_name,
                                      code, qty, int(price))
-        return jsonify({"ok": True, "order_no": result.get("주문번호", "")})
+        return JSONResponse({"ok": True, "order_no": result.get("주문번호", "")})
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
-@app.route("/portfolio/<name>/orderbook")
-def get_orderbook(name):
-    portfolios = _get_portfolios()
-    pf = next((p for p in portfolios if p["name"] == name), None)
+@app.get("/portfolio/{name}/orderbook")
+def get_orderbook(name: str, code: str = "", excg_cd: str = ""):
+    pf = _find_pf(name)
     if pf is None:
-        return jsonify({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
+        return JSONResponse({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
     if pf.get("broker") not in ("kis", "kw"):
-        return jsonify({"ok": False, "error": "호가 조회는 KIS / 키움 계좌만 지원합니다."})
-
-    code = request.args.get("code", "")
-    excg_cd = request.args.get("excg_cd", "")
+        return JSONResponse({"ok": False, "error": "호가 조회는 KIS / 키움 계좌만 지원합니다."})
     if not code:
-        return jsonify({"ok": False, "error": "종목코드 필요"})
+        return JSONResponse({"ok": False, "error": "종목코드 필요"})
 
     try:
         acct_name = pf.get("account_config_name", "")
@@ -846,29 +825,21 @@ def get_orderbook(name):
             data = get_orderbook_overseas(pf["account_cfg"], pf["project_root"], acct_name, code, excg_cd)
         else:
             data = get_orderbook_domestic(pf["account_cfg"], pf["project_root"], acct_name, code)
-        return jsonify({"ok": True, "data": data, "market": pf["market"]})
+        return JSONResponse({"ok": True, "data": data, "market": pf["market"]})
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)})
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
-@app.route("/portfolio/<name>/chart")
-def get_chart(name):
-    portfolios = _get_portfolios()
-    pf = next((p for p in portfolios if p["name"] == name), None)
+@app.get("/portfolio/{name}/chart")
+def get_chart(name: str, code: str = "", excg_cd: str = "", days: int = 120):
+    pf = _find_pf(name)
     if pf is None:
-        return jsonify({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
+        return JSONResponse({"ok": False, "error": "포트폴리오를 찾을 수 없습니다."})
     if pf.get("broker") not in ("kis", "kw"):
-        return jsonify({"ok": False, "error": "차트 조회는 KIS / 키움 계좌만 지원합니다."})
-
-    code = request.args.get("code", "")
-    excg_cd = request.args.get("excg_cd", "")
-    try:
-        days = int(request.args.get("days", 120))
-    except ValueError:
-        days = 120
+        return JSONResponse({"ok": False, "error": "차트 조회는 KIS / 키움 계좌만 지원합니다."})
     if not code:
-        return jsonify({"ok": False, "error": "종목코드 필요"})
+        return JSONResponse({"ok": False, "error": "종목코드 필요"})
 
     try:
         acct_name = pf.get("account_config_name", "")
@@ -882,13 +853,13 @@ def get_chart(name):
         else:
             candles = get_daily_chart_domestic(pf["account_cfg"], pf["project_root"], acct_name,
                                                 code, days=days)
-        return jsonify({"ok": True, "candles": candles, "market": pf["market"]})
+        return JSONResponse({"ok": True, "candles": candles, "market": pf["market"]})
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)})
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
-@app.route("/reload")
+@app.get("/reload")
 def reload_config():
     global _portfolios
     _portfolios = None
@@ -897,5 +868,14 @@ def reload_config():
     return {"status": "ok", "count": len(_portfolios)}
 
 
+# ─────────────────────────────────────────────────
+# 단독 실행
+# ─────────────────────────────────────────────────
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=9900, debug=True)
+    import uvicorn
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", "9900")),
+        log_level="info",
+    )

@@ -1,5 +1,12 @@
-flask>=3.0
-werkzeug>=3.0
-pyyaml>=6.0
-requests>=2.31
-pyjwt>=2.8     # Upbit REST 인증 (HS256 JWT 서명)
+# ezadmin runtime dependencies
+# 외부 패키지만 명시 (stdlib: sqlite3, datetime, hashlib, hmac, threading, json, os, re,
+# base64, ipaddress, uuid, urllib.parse, time, traceback, concurrent.futures)
+
+fastapi>=0.115           # 웹 프레임워크 (라우팅, 의존성, OpenAPI)
+uvicorn[standard]>=0.30  # ASGI 서버
+jinja2>=3.1              # 템플릿 엔진
+python-multipart>=0.0.9  # FastAPI Form() 데이터 파싱
+werkzeug>=3.1            # check_password_hash (비밀번호 해시 검증, Flask 의존성과 별개)
+pyyaml>=6.0              # 포트폴리오 yaml + 토큰 파일 파싱
+requests>=2.32           # KIS/KW/Upbit REST API 호출
+pyjwt>=2.10              # Upbit REST 인증 (HS256 서명)
