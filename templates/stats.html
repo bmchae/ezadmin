@@ -1,0 +1,336 @@
+{% extends "base.html" %}
+{% block title %}ezadmin - 보유종목 통계{% endblock %}
+{% block content %}
+<style>
+    .stat-card .card-body { padding: 14px 16px; }
+    .stat-card .lbl { font-size: 11px; color: var(--apple-text-tertiary); letter-spacing: -0.08px; }
+    .stat-card .val {
+        font-size: 20px; font-weight: 700; letter-spacing: -0.022em;
+        font-variant-numeric: tabular-nums;
+    }
+    .stat-table { font-size: 13px; letter-spacing: -0.08px; }
+    .stat-table td, .stat-table th { padding: 6px 10px; vertical-align: middle; }
+    .stat-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .stat-bar {
+        display: inline-block; height: 6px; border-radius: 3px;
+        background: linear-gradient(90deg, #0a84ff 0%, #5e9eff 100%);
+        vertical-align: middle; margin-right: 6px;
+    }
+    .market-badge {
+        font-size: 10px; font-weight: 600; padding: 2px 6px;
+        border-radius: 4px; letter-spacing: -0.08px;
+    }
+    .market-badge.kr     { background: #e5f1ff; color: #0a84ff; }
+    .market-badge.us     { background: #ffeaea; color: #e74c3c; }
+    .market-badge.crypto { background: #fef3c7; color: #b45309; }
+    .chart-card h6 { font-size: 13px; font-weight: 600; margin-bottom: 8px; color: var(--apple-text-secondary); }
+    .chart-box { position: relative; height: 240px; }
+    .chart-box.tall { height: 320px; }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h3 class="mb-0" style="letter-spacing: -0.022em;">보유종목 통계</h3>
+    <a href="/" class="btn btn-sm btn-outline-secondary">← 포트폴리오 목록</a>
+</div>
+
+<!-- 오너 필터 탭 -->
+<div class="btn-group btn-group-sm mb-4" role="group" aria-label="오너 필터">
+    <a href="/stats" class="btn {{ 'btn-primary' if not selected_owner else 'btn-outline-primary' }}">
+        전체
+    </a>
+    {% for o in all_owners %}
+    <a href="/stats?owner={{ o }}"
+       class="btn {{ 'btn-primary' if selected_owner == o else 'btn-outline-primary' }}">
+        {{ o }}
+    </a>
+    {% endfor %}
+</div>
+
+<!-- 요약 카드 -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-3 col-xl-2">
+        <div class="card stat-card" style="border-left: 4px solid #0a84ff;">
+            <div class="card-body">
+                <div class="lbl">총자산 (평가+현금)</div>
+                <div class="val">{{ "{:,.0f}".format(total_asset) }}원</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3 col-xl-2">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="lbl">총 평가금액</div>
+                <div class="val">{{ "{:,.0f}".format(total_amount) }}원</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3 col-xl-2">
+        <div class="card stat-card" style="border-left: 4px solid #34c759;">
+            <div class="card-body">
+                <div class="lbl">현금</div>
+                <div class="val">{{ "{:,.0f}".format(total_cash) }}원</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3 col-xl-2">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="lbl">고유 종목 수</div>
+                <div class="val">{{ stocks|length }}개</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-6 col-xl-2">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="lbl">총 평가손익</div>
+                <div class="val {{ 'text-danger' if total_pnl > 0 else 'text-primary' if total_pnl < 0 else '' }}">
+                    {{ "+" if total_pnl > 0 else "" }}{{ "{:,.0f}".format(total_pnl) }}원
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-6 col-xl-2">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="lbl">평균 수익률</div>
+                {% set avg_rate = (total_pnl / (total_amount - total_pnl) * 100) if (total_amount - total_pnl) > 0 else 0 %}
+                <div class="val {{ 'text-danger' if avg_rate > 0 else 'text-primary' if avg_rate < 0 else '' }}">
+                    {{ "+" if avg_rate > 0 else "" }}{{ "{:.2f}".format(avg_rate) }}%
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 좌: 종목 테이블, 우: 인사이트 차트 -->
+<div class="row g-3">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="mb-3">종목별 평가금액 (많은 순)</h6>
+                {% if stocks %}
+                <div class="table-responsive">
+                <table class="table table-sm table-hover stat-table mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>#</th>
+                            <th>종목</th>
+                            <th class="text-center">시장</th>
+                            <th class="num">평가금액</th>
+                            <th class="num">비율</th>
+                            <th class="num">손익</th>
+                            <th class="text-center">계좌수</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for s in stocks %}
+                        {% set ratio = (s.amount_krw / total_amount * 100) if total_amount > 0 else 0 %}
+                        {% set bar_w = (ratio / stocks[0].amount_krw * total_amount * 0.7)|round %}
+                        <tr>
+                            <td class="text-muted">{{ loop.index }}</td>
+                            <td>
+                                <code class="me-1">{{ s.code }}</code>
+                                <span style="font-weight: 500;">{{ s.name }}</span>
+                            </td>
+                            <td class="text-center">
+                                <span class="market-badge {{ s.market }}">{{ s.market | upper }}</span>
+                            </td>
+                            <td class="num fw-bold">{{ "{:,.0f}".format(s.amount_krw) }}원</td>
+                            <td class="num">
+                                <span class="stat-bar" style="width: {{ (ratio * 1.2)|round(1) }}px;"></span>
+                                {{ "{:.2f}".format(ratio) }}%
+                            </td>
+                            <td class="num {{ 'text-danger' if s.pnl_krw > 0 else 'text-primary' if s.pnl_krw < 0 else 'text-muted' }}">
+                                {{ "+" if s.pnl_krw > 0 else "" }}{{ "{:,.0f}".format(s.pnl_krw) }}원
+                            </td>
+                            <td class="text-center text-muted">{{ s.accounts|length }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                </div>
+                {% else %}
+                <div class="text-muted text-center py-4">집계할 보유종목이 없습니다.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        {% if not selected_owner %}
+        <!-- 오너별 분포 (전체 모드에서만) -->
+        <div class="card chart-card mb-3">
+            <div class="card-body">
+                <h6>오너별 평가금액</h6>
+                <div class="chart-box"><canvas id="chart-owner"></canvas></div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- 시장별 분포 -->
+        <div class="card chart-card mb-3">
+            <div class="card-body">
+                <h6>시장별 평가금액</h6>
+                <div class="chart-box"><canvas id="chart-market"></canvas></div>
+            </div>
+        </div>
+
+        <!-- 프로젝트별 분포 -->
+        <div class="card chart-card mb-3">
+            <div class="card-body">
+                <h6>프로젝트별 평가금액</h6>
+                <div class="chart-box"><canvas id="chart-project"></canvas></div>
+            </div>
+        </div>
+
+        <!-- 상위 10 종목 도넛 -->
+        <div class="card chart-card mb-3">
+            <div class="card-body">
+                <h6>상위 10 종목 비중</h6>
+                <div class="chart-box tall"><canvas id="chart-top10"></canvas></div>
+            </div>
+        </div>
+
+        <!-- 손익 상위/하위 바차트 -->
+        <div class="card chart-card mb-3">
+            <div class="card-body">
+                <h6>손익 상위/하위 10 종목</h6>
+                <div class="chart-box tall"><canvas id="chart-pnl"></canvas></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+(function() {
+    const stocks   = {{ stocks|tojson }};
+    const byMarket = {{ by_market|tojson }};
+    const byOwner  = {{ by_owner|tojson }};
+    const byProject= {{ by_project|tojson }};
+
+    const fmt = (v) => Math.round(v).toLocaleString('ko-KR') + '원';
+    const fmtPct = (v, total) => total > 0 ? ((v / total) * 100).toFixed(1) + '%' : '0%';
+
+    const colors = [
+        '#0a84ff','#34c759','#ff9500','#af52de','#ff3b30',
+        '#5856d6','#30d158','#ff453a','#64d2ff','#bf5af2',
+        '#ffd60a','#a2845e','#999999','#5e9eff','#ff8e50',
+    ];
+
+    function donut(canvasId, labels, data, opts={}) {
+        const el = document.getElementById(canvasId);
+        if (!el) return;
+        const total = data.reduce((s, v) => s + v, 0);
+        new Chart(el, {
+            type: opts.type || 'doughnut',
+            data: {
+                labels,
+                datasets: [{
+                    data,
+                    backgroundColor: labels.map((_, i) => colors[i % colors.length]),
+                    borderWidth: 1,
+                    borderColor: '#fff',
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: opts.legendPos || 'right',
+                        labels: { font: { size: 11 }, boxWidth: 12, padding: 6 },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => `${ctx.label}: ${fmt(ctx.raw)} (${fmtPct(ctx.raw, total)})`,
+                        },
+                    },
+                },
+                cutout: opts.cutout || '60%',
+            },
+        });
+    }
+
+    function bar(canvasId, labels, data, opts={}) {
+        const el = document.getElementById(canvasId);
+        if (!el) return;
+        new Chart(el, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    data,
+                    backgroundColor: data.map(v => v >= 0 ? 'rgba(231,76,60,0.7)' : 'rgba(13,110,253,0.7)'),
+                    borderWidth: 0,
+                }],
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: { label: (ctx) => fmt(ctx.raw) },
+                    },
+                },
+                scales: {
+                    x: { ticks: { callback: (v) => (v / 10000).toFixed(0) + '만' } },
+                    y: { ticks: { font: { size: 10 } } },
+                },
+            },
+        });
+    }
+
+    // 시장별
+    {
+        const entries = Object.entries(byMarket).filter(([_, v]) => v > 0);
+        donut('chart-market',
+            entries.map(([k]) => k.toUpperCase()),
+            entries.map(([_, v]) => v),
+        );
+    }
+    // 오너별
+    {
+        const entries = Object.entries(byOwner).filter(([_, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+        donut('chart-owner',
+            entries.map(([k]) => k),
+            entries.map(([_, v]) => v),
+        );
+    }
+    // 프로젝트별
+    {
+        const entries = Object.entries(byProject).filter(([_, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+        donut('chart-project',
+            entries.map(([k]) => k),
+            entries.map(([_, v]) => v),
+        );
+    }
+    // 상위 10 종목
+    {
+        const top = stocks.slice(0, 10);
+        const otherSum = stocks.slice(10).reduce((s, x) => s + x.amount_krw, 0);
+        const labels = top.map(s => s.name || s.code);
+        const data = top.map(s => s.amount_krw);
+        if (otherSum > 0) {
+            labels.push('기타');
+            data.push(otherSum);
+        }
+        donut('chart-top10', labels, data, { legendPos: 'bottom' });
+    }
+    // 손익 상위/하위 10 (절대값 큰 순)
+    {
+        const sorted = [...stocks].filter(s => s.pnl_krw !== 0)
+                                  .sort((a, b) => Math.abs(b.pnl_krw) - Math.abs(a.pnl_krw))
+                                  .slice(0, 10)
+                                  .sort((a, b) => b.pnl_krw - a.pnl_krw);
+        bar('chart-pnl',
+            sorted.map(s => s.name || s.code),
+            sorted.map(s => Math.round(s.pnl_krw)),
+        );
+    }
+})();
+</script>
+{% endblock %}

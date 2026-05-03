@@ -857,6 +857,142 @@ def get_chart(name: str, code: str = "", excg_cd: str = "", days: int = 120):
         return JSONResponse({"ok": False, "error": str(e)})
 
 
+@app.get("/stats", response_class=HTMLResponse)
+def stats(request: Request, owner: str = ""):
+    """
+    보유종목 통계 — 모든 포트폴리오의 보유종목을 종목코드 기준으로 집계.
+    - ?owner=<name> 으로 특정 오너만 필터 (빈값/누락 = 전체)
+    - KRW 환산: US 종목은 portfolio summary 의 환율 사용
+    - 상위 종목 분포 + 시장/오너/프로젝트별 분포 차트
+    """
+    all_portfolios = _get_portfolios()
+
+    # 오너 탭 목록 — owners.yaml 순서 + 그 외 알파벳순
+    all_owners = []
+    seen = set()
+    for o in KNOWN_OWNERS:
+        if any(p.get("owner") == o for p in all_portfolios) and o not in seen:
+            all_owners.append(o); seen.add(o)
+    for p in all_portfolios:
+        o = p.get("owner") or "unknown"
+        if o not in seen:
+            all_owners.append(o); seen.add(o)
+
+    selected_owner = owner.strip() if owner else ""
+    if selected_owner and selected_owner not in all_owners:
+        selected_owner = ""
+
+    portfolios = (
+        [p for p in all_portfolios if p.get("owner") == selected_owner]
+        if selected_owner else all_portfolios
+    )
+
+    summaries = {}
+    if portfolios:
+        with ThreadPoolExecutor(max_workers=min(8, len(portfolios))) as ex:
+            futures = {ex.submit(_get_cached_summary, pf): pf["name"] for pf in portfolios}
+            for fut in as_completed(futures):
+                summaries[futures[fut]] = fut.result()
+
+    by_stock = {}        # (code, market) -> 집계
+    by_market = {"kr": 0, "us": 0, "crypto": 0}
+    by_owner = {}
+    by_project = {}
+
+    for pf in portfolios:
+        s = summaries.get(pf["name"])
+        if not s or not s.get("ok"):
+            continue
+        market = pf["market"]
+        # 환율: US 면 summary["환율"], 없으면 평가금액 자체가 이미 KRW (kw 등)
+        exrt = 1.0
+        if market == "us":
+            exrt = float(s.get("환율") or 0) or 1300.0  # fallback
+            # summary 자체 dict 가 아닌 raw 응답을 사용해야 환율을 얻을 수 있음
+            # _get_cached_summary 결과에는 환율이 안 들어 있으므로 holdings 기반으로 재계산
+            # → 여기서는 portfolio level 의 평가금액(원화 환산)을 사용해 비례 분배
+
+        owner = pf.get("owner", "unknown")
+        project = pf.get("project", "?")
+
+        # 포트폴리오 단위 KRW 평가 (이미 _fetch_list_summary 에서 정리된 값)
+        pf_eval_krw = float(s.get("평가금액") or 0) if market != "us" else 0
+        if market == "us":
+            # US 는 _holdings 의 평가금액 합 * 환율 ≈ 원화총평가금액 (summary 내장)
+            # 안전을 위해 holdings 평가합 × 추정환율로 계산
+            usd_sum = sum(float(h.get("평가금액") or 0) for h in (s.get("_holdings") or []))
+            pf_eval_krw = usd_sum * exrt
+        by_market[market] = by_market.get(market, 0) + pf_eval_krw
+        by_owner[owner]   = by_owner.get(owner, 0) + pf_eval_krw
+        by_project[project] = by_project.get(project, 0) + pf_eval_krw
+
+        for h in (s.get("_holdings") or []):
+            code = str(h.get("종목코드", "") or "").strip()
+            name = str(h.get("종목명", code) or code).strip()
+            if not code:
+                continue
+            qty   = float(h.get("보유수량") or 0)
+            amt   = float(h.get("평가금액") or 0)
+            pnl   = float(h.get("손익금액") or 0)
+            amt_krw = amt * exrt if market == "us" else amt
+            pnl_krw = pnl * exrt if market == "us" else pnl
+
+            key = (code, market)
+            entry = by_stock.setdefault(key, {
+                "code": code, "name": name, "market": market,
+                "amount_krw": 0.0, "pnl_krw": 0.0,
+                "qty_total": 0.0, "accounts": [],
+            })
+            entry["amount_krw"] += amt_krw
+            entry["pnl_krw"]    += pnl_krw
+            entry["qty_total"]  += qty
+            entry["accounts"].append({
+                "owner": owner,
+                "portfolio_name": pf["name"],
+                "portfolio_desc": pf.get("description", pf["name"]),
+                "qty": qty,
+                "amount": amt,
+                "pnl": pnl,
+                "currency": "USD" if market == "us" else "KRW",
+            })
+
+    # 평가금액 10원 이하의 dust 종목은 통계에서 제외
+    DUST_THRESHOLD = 10
+    stocks = sorted(
+        (v for v in by_stock.values() if v["amount_krw"] > DUST_THRESHOLD),
+        key=lambda x: -x["amount_krw"],
+    )
+    total_amount = sum(s["amount_krw"] for s in stocks)
+    total_pnl    = sum(s["pnl_krw"] for s in stocks)
+
+    # 총자산/현금: portfolio summary 기준 합산 (오너 헤더 합계와 동일 로직)
+    # KIS 의 '총자산' = 원화총자산 (US 는 실시간 환율 반영) → 가장 정확
+    total_asset = 0.0
+    total_cash  = 0.0
+    for pf in portfolios:
+        s = summaries.get(pf["name"])
+        if not s or not s.get("ok"):
+            continue
+        total_asset += float(s.get("총자산") or 0)
+        total_cash  += float(s.get("현금") or 0)
+
+    return templates.TemplateResponse(
+        request, "stats.html",
+        {
+            "stocks": stocks,
+            "total_amount": total_amount,
+            "total_pnl": total_pnl,
+            "total_asset": total_asset,
+            "total_cash": total_cash,
+            "by_market": by_market,
+            "by_owner": by_owner,
+            "by_project": by_project,
+            "all_owners": all_owners,
+            "selected_owner": selected_owner,
+        },
+    )
+
+
 @app.get("/reload")
 def reload_config():
     global _portfolios
