@@ -9,9 +9,9 @@ import re
 
 import yaml
 
-EZGAIN_ROOT   = os.path.expanduser("~/ez/ezgain")
-EZINVEST_ROOT = os.path.expanduser("~/ez/ezinvest")
-EZSPLIT_ROOT  = os.path.expanduser("~/ez/ezsplit")
+EZGAIN_ROOT   = os.path.expanduser("../ezgain")
+EZINVEST_ROOT = os.path.expanduser("../ezinvest")
+EZSPLIT_ROOT  = os.path.expanduser("../ezsplit")
 EZADMIN_ROOT  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PROJECT_ROOTS = [

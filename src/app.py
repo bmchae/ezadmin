@@ -235,8 +235,8 @@ def login_form(request: Request, next: str = "/"):
     if not next_url.startswith("/"):
         next_url = "/"
     return templates.TemplateResponse(
-        "login.html",
-        {"request": request, "error": None, "next_url": next_url},
+        request, "login.html",
+        {"error": None, "next_url": next_url},
     )
 
 
@@ -253,8 +253,8 @@ async def login_submit(
 
     def _err(msg: str, status: int):
         return templates.TemplateResponse(
-            "login.html",
-            {"request": request, "error": msg, "next_url": next_url},
+            request, "login.html",
+            {"error": msg, "next_url": next_url},
             status_code=status,
         )
 
@@ -573,9 +573,8 @@ def index(request: Request, sort: str = "portfolio"):
     }
 
     return templates.TemplateResponse(
-        "index.html",
+        request, "index.html",
         {
-            "request": request,
             "grouped": grouped,
             "owners": sorted_owners,
             "summaries": summaries,
@@ -597,8 +596,8 @@ def portfolio_detail(name: str, request: Request):
 
     if pf is None:
         return templates.TemplateResponse(
-            "portfolio.html",
-            {"request": request, "pf": None, "error": "포트폴리오를 찾을 수 없습니다."},
+            request, "portfolio.html",
+            {"pf": None, "error": "포트폴리오를 찾을 수 없습니다."},
         )
 
     try:
@@ -608,9 +607,8 @@ def portfolio_detail(name: str, request: Request):
     except Exception as e:
         traceback.print_exc()
         return templates.TemplateResponse(
-            "portfolio.html",
-            {"request": request, "pf": pf, "error": str(e),
-             "holdings": [], "summary": {}, "currency": "KRW"},
+            request, "portfolio.html",
+            {"pf": pf, "error": str(e), "holdings": [], "summary": {}, "currency": "KRW"},
         )
 
     universe = pf["portfolio_cfg"].get("universe") or {}
@@ -660,9 +658,8 @@ def portfolio_detail(name: str, request: Request):
         today_trades = []
 
     response = templates.TemplateResponse(
-        "portfolio.html",
+        request, "portfolio.html",
         {
-            "request": request,
             "pf": pf, "holdings": holdings,
             "summary": summary, "currency": currency, "error": None,
             "pending_orders": pending_orders,
