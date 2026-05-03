@@ -449,10 +449,11 @@ def _chart_from_rows(rows, w=300, h=56):
         if bh < 1.5:
             bh = 1.5
         cx = x(i) - bar_w / 2
+        # 수익=빨강, 손실=파랑
         if r > 0:
-            bars.append({"x": cx, "y": mid - bh, "w": bar_w, "h": bh, "fill": "#34c759"})
+            bars.append({"x": cx, "y": mid - bh, "w": bar_w, "h": bh, "fill": "#ff3b30"})
         else:
-            bars.append({"x": cx, "y": mid, "w": bar_w, "h": bh, "fill": "#ff3b30"})
+            bars.append({"x": cx, "y": mid, "w": bar_w, "h": bh, "fill": "#0d6efd"})
 
     points = []
     for i, (d, a, r) in enumerate(rows):

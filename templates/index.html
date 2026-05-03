@@ -135,7 +135,7 @@
     .owner-total {
         font-size: 19px;
         font-weight: 700;
-        color: #30d158;       /* 밝은 녹색 — 자산 강조 */
+        color: #ffffff;       /* 흰색 — 다크 배너 위 자산 표시 */
         font-variant-numeric: tabular-nums;
         letter-spacing: -0.022em;
         white-space: nowrap;
@@ -226,8 +226,8 @@
     .pf-chart-tooltip .tt-date { color: #d2d2d7; font-weight: 600; margin-bottom: 2px; font-size: 12px; }
     .pf-chart-tooltip .tt-row { display: flex; gap: 10px; justify-content: space-between; }
     .pf-chart-tooltip .tt-label { color: #a1a1a6; }
-    .pf-chart-tooltip .tt-profit { color: #34c759; }
-    .pf-chart-tooltip .tt-loss { color: #ff3b30; }
+    .pf-chart-tooltip .tt-profit { color: #ff453a; }       /* 수익=빨강 */
+    .pf-chart-tooltip .tt-loss   { color: #5e9eff; }       /* 손실=파랑 (글자) */
     .pf-chart-foot {
         display: flex;
         justify-content: space-between;
@@ -397,13 +397,13 @@
     {% if och %}
     <div class="owner-chart pf-chart-body">
         <svg class="pf-chart-svg" viewBox="0 0 {{ och.w }} {{ och.h }}" preserveAspectRatio="none">
-            <path d="{{ och.area }}" fill="#30d158" fill-opacity="0.22"/>
-            <path d="{{ och.line }}" fill="none" stroke="#30d158" stroke-width="1.4" stroke-linejoin="round"/>
+            <path d="{{ och.area }}" fill="#ff453a" fill-opacity="0.22"/>
+            <path d="{{ och.line }}" fill="none" stroke="#ff453a" stroke-width="1.4" stroke-linejoin="round"/>
             {% for b in och.bars %}
             <rect x="{{ "%.1f"|format(b.x) }}" y="{{ "%.1f"|format(b.y) }}" width="{{ "%.1f"|format(b.w) }}" height="{{ "%.1f"|format(b.h) }}" fill="{{ b.fill }}" rx="0.5"/>
             {% endfor %}
             <line class="pf-chart-cursor" x1="0" y1="0" x2="0" y2="{{ och.h }}" stroke="rgba(255,255,255,0.5)" stroke-width="0.6" stroke-dasharray="2,2" style="display:none" vector-effect="non-scaling-stroke"/>
-            <circle class="pf-chart-dot" r="2.4" fill="#30d158" stroke="#1c1c1e" stroke-width="0.8" style="display:none"/>
+            <circle class="pf-chart-dot" r="2.4" fill="#ff453a" stroke="#1c1c1e" stroke-width="0.8" style="display:none"/>
         </svg>
         <script type="application/json" class="pf-chart-data">{{ och.points | tojson }}</script>
     </div>
@@ -494,13 +494,13 @@
                             </div>
                             <div class="pf-chart-body">
                                 <svg class="pf-chart-svg" viewBox="0 0 {{ ch.w }} {{ ch.h }}" preserveAspectRatio="none">
-                                    <path d="{{ ch.area }}" fill="#34c759" fill-opacity="0.18"/>
-                                    <path d="{{ ch.line }}" fill="none" stroke="#34c759" stroke-width="1.2" stroke-linejoin="round"/>
+                                    <path d="{{ ch.area }}" fill="#ff3b30" fill-opacity="0.18"/>
+                                    <path d="{{ ch.line }}" fill="none" stroke="#ff3b30" stroke-width="1.2" stroke-linejoin="round"/>
                                     {% for b in ch.bars %}
                                     <rect x="{{ "%.1f"|format(b.x) }}" y="{{ "%.1f"|format(b.y) }}" width="{{ "%.1f"|format(b.w) }}" height="{{ "%.1f"|format(b.h) }}" fill="{{ b.fill }}" rx="0.5"/>
                                     {% endfor %}
                                     <line class="pf-chart-cursor" x1="0" y1="0" x2="0" y2="{{ ch.h }}" stroke="#86868b" stroke-width="0.6" stroke-dasharray="2,2" style="display:none" vector-effect="non-scaling-stroke"/>
-                                    <circle class="pf-chart-dot" r="2.2" fill="#34c759" stroke="#fff" stroke-width="0.8" style="display:none"/>
+                                    <circle class="pf-chart-dot" r="2.2" fill="#ff3b30" stroke="#fff" stroke-width="0.8" style="display:none"/>
                                 </svg>
                                 <script type="application/json" class="pf-chart-data">{{ ch.points | tojson }}</script>
                             </div>
