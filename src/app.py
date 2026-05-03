@@ -370,6 +370,7 @@ def _fetch_list_summary(pf):
             "손익": pnl,
             "수익률": rt,
             "당일실현손익": today_rlz,
+            "_holdings": holdings,    # 검색 기능용 (캐시에 함께 저장)
         }
         try:
             upsert_today(PROJECT_ROOT, pf["name"], result["총자산"], today_rlz)
@@ -377,7 +378,7 @@ def _fetch_list_summary(pf):
             print(f"[snapshot] upsert 실패 ({pf['name']}): {e}")
         return result
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": str(e), "_holdings": []}
 
 
 def _get_cached_summary(pf):
@@ -863,6 +864,63 @@ def reload_config():
     _summary_cache.clear()
     _get_portfolios()
     return {"status": "ok", "count": len(_portfolios)}
+
+
+@app.get("/api/search")
+def search_holdings(q: str = ""):
+    """
+    종목명/종목코드로 검색해 모든 포트폴리오의 보유 현황을 반환.
+    캐시된 holdings (_get_cached_summary 의 _holdings 필드) 를 사용해 추가 API 호출 없음.
+    """
+    q = (q or "").strip().lower()
+    if not q:
+        return {"query": "", "results": []}
+
+    portfolios = _get_portfolios()
+    results = []
+    if not portfolios:
+        return {"query": q, "results": []}
+
+    workers = min(8, len(portfolios))
+    fetched = {}
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(_get_cached_summary, pf): pf["name"] for pf in portfolios}
+        for fut in as_completed(futures):
+            fetched[futures[fut]] = fut.result()
+
+    for pf in portfolios:
+        s = fetched.get(pf["name"])
+        if not s or not s.get("ok"):
+            continue
+        holdings = s.get("_holdings") or []
+        matches = []
+        for h in holdings:
+            code = str(h.get("종목코드", ""))
+            name = str(h.get("종목명", ""))
+            if q in code.lower() or q in name.lower():
+                matches.append({
+                    "code": code,
+                    "name": name,
+                    "qty": h.get("보유수량", 0),
+                    "avg_price": h.get("매수평균가", 0),
+                    "current": h.get("현재가", 0),
+                    "buy_amount": h.get("매수금액", 0),
+                    "eval_amount": h.get("평가금액", 0),
+                    "pnl": h.get("손익금액", 0),
+                    "rate": h.get("수익률", 0),
+                })
+        if matches:
+            results.append({
+                "owner": pf.get("owner", "unknown"),
+                "name": pf["name"],
+                "description": pf.get("description", pf["name"]),
+                "project": pf.get("project", ""),
+                "broker": pf.get("broker", ""),
+                "market": pf.get("market", ""),
+                "currency": "USD" if pf["market"] == "us" else "KRW",
+                "matches": matches,
+            })
+    return {"query": q, "results": results}
 
 
 # ─────────────────────────────────────────────────

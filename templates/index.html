@@ -245,17 +245,140 @@
     }
 </style>
 {% set _sort = sort_mode|default('portfolio') %}
-<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <h3 class="mb-0" style="letter-spacing: -0.022em;">포트폴리오 목록</h3>
-    <div class="btn-group btn-group-sm" role="group" aria-label="포트폴리오 정렬">
-        {% for opt, label in [('portfolio','포트폴리오'),('asset','총자산'),('cash','현금'),('realized','당일실현손익')] %}
-        <a href="?sort={{ opt }}"
-           class="btn btn-sm {{ 'btn-primary' if _sort == opt else 'btn-outline-primary' }}">
-            {{ label }}
-        </a>
-        {% endfor %}
+    <div class="d-flex gap-2 align-items-center">
+        <div class="position-relative">
+            <input type="search" id="search-input" class="form-control form-control-sm"
+                   placeholder="종목 코드/이름 검색…" autocomplete="off"
+                   style="min-width: 240px;">
+            <span id="search-spinner" class="position-absolute small text-muted"
+                  style="right: 8px; top: 50%; transform: translateY(-50%); display:none;">…</span>
+        </div>
+        <div class="btn-group btn-group-sm" role="group" aria-label="포트폴리오 정렬">
+            {% for opt, label in [('portfolio','포트폴리오'),('asset','총자산'),('cash','현금'),('realized','당일실현손익')] %}
+            <a href="?sort={{ opt }}"
+               class="btn btn-sm {{ 'btn-primary' if _sort == opt else 'btn-outline-primary' }}">
+                {{ label }}
+            </a>
+            {% endfor %}
+        </div>
     </div>
 </div>
+
+<!-- 검색 결과 패널 (기본 숨김) -->
+<div id="search-results" class="card mb-4" style="display:none;">
+    <div class="card-body p-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0">검색 결과 <span id="search-meta" class="text-muted small ms-2"></span></h6>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="search-clear">닫기</button>
+        </div>
+        <div id="search-table-wrap" class="table-responsive"></div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const input = document.getElementById('search-input');
+    const panel = document.getElementById('search-results');
+    const tableWrap = document.getElementById('search-table-wrap');
+    const meta = document.getElementById('search-meta');
+    const spinner = document.getElementById('search-spinner');
+    const clearBtn = document.getElementById('search-clear');
+    if (!input) return;
+
+    let timer = null;
+    let inFlight = null;
+
+    const fmtKRW = (v) => Math.round(v || 0).toLocaleString('ko-KR') + '원';
+    const fmtUSD = (v) => '$' + Number(v || 0).toFixed(2);
+    const fmtAmt = (v, ccy) => ccy === 'USD' ? fmtUSD(v) : fmtKRW(v);
+    const fmtRate = (v) => (v >= 0 ? '+' : '') + Number(v || 0).toFixed(2) + '%';
+    const fmtSigned = (v, ccy) => (v >= 0 ? '+' : '-') + fmtAmt(Math.abs(v), ccy);
+
+    function render(results) {
+        if (!results.length) {
+            tableWrap.innerHTML = '<div class="text-muted small text-center py-3">일치하는 보유종목이 없습니다.</div>';
+            return;
+        }
+        let total_matches = 0;
+        let html = '<table class="table table-sm table-hover align-middle mb-0"><thead class="table-light"><tr>'
+            + '<th>오너</th><th>계좌</th><th>종목</th>'
+            + '<th class="text-end">보유수량</th><th class="text-end">보유금액</th>'
+            + '<th class="text-end">손익</th><th class="text-end">수익률</th>'
+            + '</tr></thead><tbody>';
+        for (const r of results) {
+            for (const m of r.matches) {
+                total_matches++;
+                const ccy = r.currency;
+                const pnlClass = m.pnl > 0 ? 'text-danger' : (m.pnl < 0 ? 'text-primary' : 'text-muted');
+                const rateClass = m.rate > 0 ? 'text-danger' : (m.rate < 0 ? 'text-primary' : 'text-muted');
+                html += '<tr>'
+                    + `<td><span class="badge bg-secondary">${r.owner}</span></td>`
+                    + `<td><a href="/portfolio/${encodeURIComponent(r.name)}" class="text-decoration-none small">${r.description}</a></td>`
+                    + `<td><code class="me-1">${m.code}</code>${m.name}</td>`
+                    + `<td class="text-end">${(ccy === 'USD' ? Number(m.qty).toFixed(4).replace(/\.?0+$/, '') : Math.round(m.qty).toLocaleString('ko-KR'))}</td>`
+                    + `<td class="text-end">${fmtAmt(m.eval_amount, ccy)}</td>`
+                    + `<td class="text-end ${pnlClass} fw-bold">${fmtSigned(m.pnl, ccy)}</td>`
+                    + `<td class="text-end ${rateClass} fw-bold">${fmtRate(m.rate)}</td>`
+                    + '</tr>';
+            }
+        }
+        html += '</tbody></table>';
+        meta.textContent = `· ${results.length}개 계좌 / ${total_matches}건`;
+        tableWrap.innerHTML = html;
+    }
+
+    async function doSearch(q) {
+        if (inFlight) inFlight.abort();
+        const ctrl = new AbortController();
+        inFlight = ctrl;
+        spinner.style.display = '';
+        try {
+            const res = await fetch('/api/search?q=' + encodeURIComponent(q), {
+                signal: ctrl.signal,
+                credentials: 'same-origin',
+            });
+            const data = await res.json();
+            if (ctrl !== inFlight) return;  // 더 새 요청이 떴으면 무시
+            panel.style.display = '';
+            render(data.results || []);
+        } catch (e) {
+            if (e.name !== 'AbortError') {
+                tableWrap.innerHTML = `<div class="text-danger small">검색 오류: ${e.message}</div>`;
+            }
+        } finally {
+            if (ctrl === inFlight) {
+                spinner.style.display = 'none';
+                inFlight = null;
+            }
+        }
+    }
+
+    function onInput() {
+        clearTimeout(timer);
+        const q = input.value.trim();
+        if (!q) {
+            panel.style.display = 'none';
+            return;
+        }
+        timer = setTimeout(() => doSearch(q), 250);
+    }
+
+    input.addEventListener('input', onInput);
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            input.value = '';
+            panel.style.display = 'none';
+        }
+    });
+    clearBtn.addEventListener('click', () => {
+        input.value = '';
+        panel.style.display = 'none';
+        input.focus();
+    });
+})();
+</script>
 
 {% for owner in owners %}
 {% set total = owner_totals.get(owner, 0) %}
