@@ -372,6 +372,24 @@ def _fetch_list_summary(pf):
             "당일실현손익": today_rlz,
             "_holdings": holdings,    # 검색 기능용 (캐시에 함께 저장)
         }
+
+        # 당일자산증감 = 오늘 총자산 - 전일 총자산 (오늘 스냅샷 upsert 전에 전일치 조회)
+        day_chg = None
+        day_chg_rate = None
+        try:
+            from datetime import datetime as _dt
+            today_str = _dt.now().strftime("%Y-%m-%d")
+            rows = get_recent_snapshots(PROJECT_ROOT, pf["name"], days=14)
+            prev_assets = [a for d, a, _ in rows if d != today_str and a is not None]
+            prev_asset = prev_assets[-1] if prev_assets else None
+            if prev_asset and prev_asset > 0:
+                day_chg = result["총자산"] - prev_asset
+                day_chg_rate = (day_chg / prev_asset) * 100
+        except Exception as e:
+            print(f"[day_chg] {pf.get('name','?')}: {e}")
+        result["당일자산증감"] = day_chg
+        result["당일자산증감률"] = day_chg_rate
+
         try:
             upsert_today(PROJECT_ROOT, pf["name"], result["총자산"], today_rlz)
         except Exception as e:

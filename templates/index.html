@@ -470,6 +470,20 @@
                             </span>
                         </div>
                         <div class="pf-divider"></div>
+                        {% set day_chg = s.get('당일자산증감') %}
+                        {% set day_chg_rate = s.get('당일자산증감률') %}
+                        <div class="pf-row">
+                            <span class="label">당일자산증감</span>
+                            {% if day_chg is none %}
+                                <span class="value text-muted">-</span>
+                            {% else %}
+                                <span class="value {{ 'text-profit' if day_chg > 0 else 'text-loss' if day_chg < 0 else '' }}">
+                                    {{ "+" if day_chg > 0 else "" }}{{ "{:,.0f}".format(day_chg) }}원
+                                    ({{ "+" if day_chg_rate > 0 else "" }}{{ "{:.2f}".format(day_chg_rate) }}%)
+                                </span>
+                            {% endif %}
+                        </div>
+                        <div class="pf-divider"></div>
                         {% set today_rlz = s.get('당일실현손익') %}
                         <div class="pf-row">
                             <span class="label">당일 실현손익</span>
