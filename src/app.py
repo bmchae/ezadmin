@@ -555,13 +555,29 @@ def index(request: Request, sort: str = "portfolio"):
                 summaries[futures[fut]] = fut.result()
 
     owner_totals = {}
+    owner_day_chg = {}        # 오너별 당일자산증감 (전일 데이터 있는 포트폴리오만 합산)
+    owner_day_chg_rate = {}
     for owner, pfs in grouped.items():
         total = 0
+        chg_sum = 0.0
+        yesterday_sum = 0.0
         for pf in pfs:
             s = summaries.get(pf["name"])
-            if s and s.get("ok"):
-                total += s.get("총자산", 0) or 0
+            if not (s and s.get("ok")):
+                continue
+            total += s.get("총자산", 0) or 0
+            chg = s.get("당일자산증감")
+            today_t = s.get("총자산", 0) or 0
+            if chg is not None:
+                chg_sum += chg
+                yesterday_sum += (today_t - chg)
         owner_totals[owner] = total
+        if yesterday_sum > 0:
+            owner_day_chg[owner] = chg_sum
+            owner_day_chg_rate[owner] = chg_sum / yesterday_sum * 100
+        else:
+            owner_day_chg[owner] = None
+            owner_day_chg_rate[owner] = None
 
     sort_mode = sort if sort in ("portfolio", "asset", "cash", "realized") else "portfolio"
 
@@ -599,6 +615,8 @@ def index(request: Request, sort: str = "portfolio"):
             "owners": sorted_owners,
             "summaries": summaries,
             "owner_totals": owner_totals,
+            "owner_day_chg": owner_day_chg,
+            "owner_day_chg_rate": owner_day_chg_rate,
             "charts": charts,
             "owner_charts": owner_charts,
             "sort_mode": sort_mode,

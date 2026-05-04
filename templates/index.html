@@ -141,6 +141,18 @@
         white-space: nowrap;
         text-shadow: 0 1px 2px rgba(0,0,0,0.3);
     }
+    .owner-total-wrap { text-align: right; }
+    .owner-day-chg {
+        font-size: 12px;
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.08px;
+        color: rgba(242,242,247,0.65);
+        margin-top: 2px;
+        white-space: nowrap;
+    }
+    .owner-day-chg.up   { color: #ff453a; }   /* 수익=빨강 */
+    .owner-day-chg.down { color: #5e9eff; }   /* 손실=파랑 (다크 위 가독성) */
     .owner-total .lbl {
         font-size: 10px;
         font-weight: 500;
@@ -391,7 +403,17 @@
             <span class="owner-count">{{ grouped[owner]|length }}개</span>
         </div>
         {% if total %}
-            <div class="owner-total">{{ "{:,.0f}".format(total) }}원</div>
+            <div class="owner-total-wrap">
+                <div class="owner-total">{{ "{:,.0f}".format(total) }}원</div>
+                {% set odc = owner_day_chg.get(owner) if owner_day_chg is defined else none %}
+                {% set odr = owner_day_chg_rate.get(owner) if owner_day_chg_rate is defined else none %}
+                {% if odc is not none %}
+                <div class="owner-day-chg {{ 'up' if odc > 0 else 'down' if odc < 0 else '' }}">
+                    {{ "+" if odc > 0 else "" }}{{ "{:,.0f}".format(odc) }}원
+                    ({{ "+" if odr > 0 else "" }}{{ "{:.2f}".format(odr) }}%)
+                </div>
+                {% endif %}
+            </div>
         {% endif %}
     </div>
     {% if och %}
