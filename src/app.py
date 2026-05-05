@@ -651,9 +651,24 @@ def portfolio_detail(name: str, request: Request):
 
     universe = pf["portfolio_cfg"].get("universe") or {}
     total_evlu = sum(h["평가금액"] for h in holdings) if holdings else 0
+
+    # ezgain 은 yaml 의 weight 합이 100 이 아닐 수 있으므로 정규화하여 목표비중(%) 산출.
+    # 그 외 프로젝트는 yaml weight 를 그대로 % 로 사용 (기존 동작).
+    is_ezgain = pf.get("project") == "ezgain"
+    total_target_weight = 0.0
+    if is_ezgain and universe:
+        total_target_weight = sum(
+            float(v.get("weight", 0)) for v in universe.values()
+            if isinstance(v, dict)
+        )
+
     for h in holdings:
         code = h["종목코드"]
-        target_weight = float(universe.get(code, {}).get("weight", 0)) if isinstance(universe.get(code), dict) else 0
+        raw_w = float(universe.get(code, {}).get("weight", 0)) if isinstance(universe.get(code), dict) else 0
+        if is_ezgain and total_target_weight > 0:
+            target_weight = round(raw_w / total_target_weight * 100, 2)
+        else:
+            target_weight = round(raw_w, 2)
         actual_weight = round(h["평가금액"] / total_evlu * 100, 2) if total_evlu else 0
         h["비중"] = actual_weight
         h["목표비중"] = target_weight
