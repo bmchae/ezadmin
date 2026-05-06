@@ -690,6 +690,23 @@ def get_overseas_balance(acct_cfg, project_root, acct_config_name=""):
             "원화예수금": krw_cash,
         }
 
+    # 보유종목 0 + 외화평가 0 이지만 외화 잔고(매수증거금 포함)가 있으면
+    # 외화현금만이라도 노출 (자산배분2 처럼 USD 가 매수증거금에 묶인 케이스)
+    if not summary and usd_cash > 0:
+        summary = {
+            "총매수금액": 0,
+            "총평가금액": 0,
+            "총손익금액": 0,
+            "총수익률": 0,
+            "원화총매수금액": 0,
+            "원화총평가금액": 0,
+            "원화총손익금액": 0,
+            "원화총수익률": 0,
+            "환율": exrt,
+            "외화예수금": usd_cash,
+            "원화예수금": krw_cash,
+        }
+
     return holdings, summary
 
 

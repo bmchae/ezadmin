@@ -329,6 +329,49 @@ def _fetch_balance(pf):
     return fn(pf["account_cfg"], pf["project_root"], acct_name)
 
 
+def _extract_foreign(summary, allow_cash_fallback=True):
+    """
+    overseas-style summary 에서 외화 평가/현금/원화환산 추출.
+    summary 가 비어있거나 외화 정보가 없으면 None 반환.
+
+    allow_cash_fallback=True: (원화총자산 - 원화총평가) / 환율 로 외화현금 보강.
+        US 전용 계좌일 때만 안전. KR+US 혼합 계좌에서는 원화총자산이 KR 자산까지
+        포함하므로 외화현금이 부풀려진다. 혼합계좌는 False 로 호출.
+    """
+    if not isinstance(summary, dict):
+        return None
+    foreign_evlu = float(summary.get("총평가금액") or 0)        # USD 평가
+    exrt = float(summary.get("환율") or 0)
+    krw_tot_v = float(summary.get("원화총자산") or 0)
+    krw_evlu_v = float(summary.get("원화총평가금액") or 0)
+    raw_cash = float(summary.get("외화예수금") or 0)
+
+    # 외화현금: raw 외화예수금 우선, 0 이고 fallback 허용시 원화 차이로 역산
+    if raw_cash > 0:
+        foreign_cash = raw_cash
+    elif allow_cash_fallback and exrt > 0 and krw_tot_v > 0 and krw_evlu_v >= 0:
+        foreign_cash = max(0.0, (krw_tot_v - krw_evlu_v) / exrt)
+    else:
+        foreign_cash = 0.0
+
+    foreign_total = foreign_evlu + foreign_cash
+    if foreign_total <= 0:
+        return None
+    if exrt > 0:
+        foreign_krw = foreign_total * exrt
+    elif krw_tot_v > 0:
+        foreign_krw = krw_tot_v
+    else:
+        foreign_krw = 0.0
+    return {
+        "외화평가금액":   foreign_evlu,
+        "외화현금":       foreign_cash,
+        "외화자산":       foreign_total,
+        "원화환산외화자산": foreign_krw,
+        "환율":           exrt,
+    }
+
+
 def _fetch_list_summary(pf):
     """포트폴리오 카드용 요약 (해외는 원화 환산 우선)."""
     try:
@@ -370,50 +413,40 @@ def _fetch_list_summary(pf):
                 print(f"[today_rlz] {pf.get('name','?')} ({broker}/{market}): {e}")
                 today_rlz = None
 
-        # 외화자산: 해외(US) 계좌에서만 USD + 원화환산 값을 별도 보존
+        # 외화자산: US 계좌는 balance summary 에서, KR+KIS 계좌는 overseas balance 추가 조회
+        foreign = None
         if pf["market"] == "us":
-            foreign_evlu = float(summary.get("총평가금액") or 0)        # USD 평가
-            exrt = float(summary.get("환율") or 0)
-            krw_tot_v  = float(summary.get("원화총자산") or 0)
-            krw_evlu_v = float(summary.get("원화총평가금액") or 0)
+            foreign = _extract_foreign(summary)
+        elif pf.get("broker") == "kis":
+            try:
+                _, fsummary = get_overseas_balance(
+                    pf["account_cfg"], pf["project_root"],
+                    pf.get("account_config_name", ""))
+                # KR+US 혼합계좌: 원화총자산이 KR 자산까지 포함하므로 cash fallback 금지
+                foreign = _extract_foreign(fsummary, allow_cash_fallback=False)
+            except Exception as e:
+                print(f"[foreign-kr] {pf.get('name','?')}: {e}")
+        foreign = foreign or {
+            "외화평가금액": 0.0, "외화현금": 0.0,
+            "외화자산": 0.0, "원화환산외화자산": 0.0, "환율": 0.0,
+        }
 
-            # 외화현금(USD): (원화총자산 - 원화총평가) / 환율 우선,
-            # 환율 또는 원화 정보 없으면 외화예수금 raw 값 사용
-            if exrt > 0 and krw_tot_v > 0 and krw_evlu_v >= 0:
-                foreign_cash = max(0.0, (krw_tot_v - krw_evlu_v) / exrt)
-            else:
-                foreign_cash = float(summary.get("외화예수금") or 0)
-
-            foreign_total = foreign_evlu + foreign_cash
-            # 원화환산
-            if exrt > 0:
-                foreign_krw = foreign_total * exrt
-            elif krw_tot_v > 0:
-                foreign_krw = krw_tot_v
-            else:
-                foreign_krw = 0.0
-        else:
-            foreign_evlu = 0.0
-            foreign_cash = 0.0
-            foreign_total = 0.0
-            foreign_krw = 0.0
-            exrt = 0.0
+        # 총자산: KRW 평가+현금 + KR 계좌의 외화 원화환산
+        total_assets = krw_tot or (evlu + (cash or 0))
+        if pf["market"] != "us" and foreign["원화환산외화자산"] > 0:
+            total_assets = total_assets + foreign["원화환산외화자산"]
 
         result = {
             "ok": True,
             "통화": "KRW",
-            "총자산": krw_tot or (evlu + (cash or 0)),
+            "총자산": total_assets,
             "현금": cash,
             "매수금액": pchs,
             "평가금액": evlu,
             "손익": pnl,
             "수익률": rt,
             "당일실현손익": today_rlz,
-            "외화평가금액":   float(foreign_evlu),    # USD 평가
-            "외화현금":       float(foreign_cash),    # USD 현금
-            "외화자산":       foreign_total,           # USD = 평가 + 현금
-            "원화환산외화자산": foreign_krw,            # KRW 환산 (전체)
-            "환율":           exrt,                    # USD/KRW 환율 (없으면 0)
+            **foreign,
             "_holdings": holdings,    # 검색 기능용 (캐시에 함께 저장)
         }
 
@@ -686,6 +719,26 @@ def portfolio_detail(name: str, request: Request):
         acct_name = pf.get("account_config_name", "")
         holdings, summary = _fetch_balance(pf)
         currency = "USD" if pf["market"] == "us" else "KRW"
+        foreign_holdings = []
+        foreign_summary = {}
+        # USD 계좌에서 KIS raw 외화예수금이 0 으로 나오는 경우 보강
+        if pf["market"] == "us":
+            foreign = _extract_foreign(summary)
+            if foreign and foreign["외화현금"] > 0:
+                summary["외화예수금"] = foreign["외화현금"]
+        # KR + KIS 계좌도 외화 보유분이 있으면 조회해서 별도 노출
+        elif pf.get("broker") == "kis":
+            try:
+                fh, fsummary = get_overseas_balance(
+                    pf["account_cfg"], pf["project_root"], acct_name)
+                # 혼합계좌: cash fallback 금지 (원화총자산이 KR 자산 포함)
+                foreign = _extract_foreign(fsummary, allow_cash_fallback=False)
+                if foreign:
+                    foreign_holdings = fh or []
+                    foreign_summary = fsummary or {}
+                    foreign_summary["_extracted"] = foreign
+            except Exception as e:
+                print(f"[detail-foreign] {pf.get('name','?')}: {e}")
     except Exception as e:
         traceback.print_exc()
         return templates.TemplateResponse(
@@ -762,6 +815,8 @@ def portfolio_detail(name: str, request: Request):
             "pending_orders": pending_orders,
             "pending_sell_codes": pending_sell_codes,
             "today_trades": today_trades,
+            "foreign_holdings": foreign_holdings,
+            "foreign_summary": foreign_summary,
         },
     )
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"

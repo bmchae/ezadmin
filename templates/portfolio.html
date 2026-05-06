@@ -192,12 +192,16 @@
     </div>
 {% elif summary.get('D+2예수금') is not none %}
     {% set cash = summary.get('D+2예수금', 0) %}
-    {% set total_assets = summary.get('총평가금액', 0) + cash %}
+    {% set foreign_extracted = (foreign_summary or {}).get('_extracted') %}
+    {% set foreign_krw = foreign_extracted.원화환산외화자산 if foreign_extracted else 0 %}
+    {% set total_assets = summary.get('총평가금액', 0) + cash + foreign_krw %}
     <div class="row g-3 mb-2">
         <div class="col-sm-6 col-md-6">
             <div class="card summary-card" style="border-left-color: #0d6efd;">
                 <div class="card-body py-2">
-                    <div class="small text-muted">총자산 (평가금액 + 현금)</div>
+                    <div class="small text-muted">
+                        총자산 (평가금액 + 현금{% if foreign_krw > 0 %} + 외화환산{% endif %})
+                    </div>
                     <div class="fw-bold fs-5">{{ "{:,.0f}".format(total_assets) }}원</div>
                 </div>
             </div>
@@ -211,6 +215,47 @@
             </div>
         </div>
     </div>
+    {% if foreign_extracted and foreign_extracted.외화자산 > 0 %}
+    {% set _exrt = foreign_extracted.환율 %}
+    <div class="row g-3 mb-2">
+        <div class="col-sm-6 col-md-6">
+            <div class="card summary-card"
+                 style="background: rgba(255,149,0,0.18); border-left-color: #ff9500;">
+                <div class="card-body py-2">
+                    <div class="small" style="color: #b45309;">외화 평가금액</div>
+                    <div class="fw-bold fs-5" style="color: #b45309;">
+                        {% if _exrt > 0 %}
+                            {{ "{:,.0f}".format(foreign_extracted.외화평가금액 * _exrt) }}원
+                            <span class="fs-6" style="font-weight: 500;">
+                                (${{ "{:,.2f}".format(foreign_extracted.외화평가금액) }})
+                            </span>
+                        {% else %}
+                            ${{ "{:,.2f}".format(foreign_extracted.외화평가금액) }}
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-md-6">
+            <div class="card summary-card"
+                 style="background: rgba(255,149,0,0.18); border-left-color: #ff9500;">
+                <div class="card-body py-2">
+                    <div class="small" style="color: #b45309;">외화 현금</div>
+                    <div class="fw-bold fs-5" style="color: #b45309;">
+                        {% if _exrt > 0 %}
+                            {{ "{:,.0f}".format(foreign_extracted.외화현금 * _exrt) }}원
+                            <span class="fs-6" style="font-weight: 500;">
+                                (${{ "{:,.2f}".format(foreign_extracted.외화현금) }})
+                            </span>
+                        {% else %}
+                            ${{ "{:,.2f}".format(foreign_extracted.외화현금) }}
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 {% endif %}
 <div class="row g-3 mb-4">
     <div class="col-sm-6 col-md-3">
@@ -666,6 +711,59 @@
 </div>
 {% elif not error %}
 <div class="alert alert-info">보유종목이 없습니다.</div>
+{% endif %}
+
+{% if foreign_holdings %}
+{% set _exrt2 = (foreign_summary or {}).get('환율', 0) %}
+<div class="mt-4 mb-2">
+    <h6 style="color: #b45309;">외화 보유종목 ({{ foreign_holdings|length }}건)</h6>
+</div>
+<div class="table-responsive">
+<table class="table table-sm table-hover table-bordered align-middle"
+       style="background: rgba(255,149,0,0.06);">
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>종목코드</th>
+            <th>종목명</th>
+            <th class="text-end">보유수량</th>
+            <th class="text-end">매수평균가</th>
+            <th class="text-end">현재가</th>
+            <th class="text-end">매수금액 ($)</th>
+            <th class="text-end">평가금액 ($)</th>
+            <th class="text-end">평가금액 (원)</th>
+            <th class="text-end">손익 ($)</th>
+            <th class="text-end">수익률</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for h in foreign_holdings %}
+        {% set evlu_usd = h.get('평가금액', 0) %}
+        {% set pnl = h.get('손익금액', 0) %}
+        {% set rt = h.get('수익률', 0) %}
+        <tr>
+            <td>{{ loop.index }}</td>
+            <td><code>{{ h.get('종목코드','') }}</code></td>
+            <td>{{ h.get('종목명','') }}</td>
+            <td class="text-end">{{ "{:,}".format(h.get('보유수량',0)|int) }}</td>
+            <td class="text-end">${{ "{:,.2f}".format(h.get('매수평균가',0)) }}</td>
+            <td class="text-end">${{ "{:,.2f}".format(h.get('현재가',0)) }}</td>
+            <td class="text-end">${{ "{:,.2f}".format(h.get('매수금액',0)) }}</td>
+            <td class="text-end">${{ "{:,.2f}".format(evlu_usd) }}</td>
+            <td class="text-end">
+                {% if _exrt2 > 0 %}{{ "{:,.0f}".format(evlu_usd * _exrt2) }}원{% else %}-{% endif %}
+            </td>
+            <td class="text-end {{ 'text-profit' if pnl > 0 else 'text-loss' if pnl < 0 else '' }}">
+                {{ "+" if pnl > 0 else "" }}${{ "{:,.2f}".format(pnl) }}
+            </td>
+            <td class="text-end {{ 'text-profit' if rt > 0 else 'text-loss' if rt < 0 else '' }}">
+                {{ "+" if rt > 0 else "" }}{{ "{:.2f}".format(rt) }}%
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
 {% endif %}
 
 {% if pf %}
