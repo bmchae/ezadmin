@@ -252,12 +252,14 @@
                     통계
                 </a>
             </div>
+            {% if auth_enabled %}
             <form method="POST" action="/logout" class="ms-auto mb-0">
                 <button type="submit" class="btn btn-sm btn-outline-light"
                         style="font-size: 11px; padding: 2px 10px; letter-spacing: -0.12px;">
                     로그아웃
                 </button>
             </form>
+            {% endif %}
         </div>
     </nav>
     <div class="container-fluid px-5" style="max-width: 95%;">

@@ -70,6 +70,12 @@ if os.path.isdir(_static_dir):
 
 init_db(PROJECT_ROOT)
 
+# 인증 활성 여부: 프로젝트 루트의 .env 파일 존재 시에만 동작.
+#   - .env 있음 → 기존처럼 LAN 면제 + WAN JWT 쿠키 인증
+#   - .env 없음 → 모든 요청 통과 (개발/내부망 한정 사용)
+AUTH_ENABLED = os.path.exists(os.path.join(PROJECT_ROOT, ".env"))
+templates.env.globals["auth_enabled"] = AUTH_ENABLED
+
 AUTH_USERNAME = os.environ.get("WEB_AUTH_USER", "")
 AUTH_PASSWORD_HASH = os.environ.get("WEB_AUTH_PASSWORD_HASH", "")
 TRUST_PROXY = os.environ.get("TRUST_PROXY", "0") == "1"
@@ -182,6 +188,10 @@ def _set_session_cookie(response: Response, token: str, max_age: int, secure: bo
 @app.middleware("http")
 async def session_middleware(request: Request, call_next):
     """세션 검증 + 임계값 갱신을 한 미들웨어에서 처리."""
+    # .env 파일이 없으면 인증 자체를 비활성화 — 모든 요청 그대로 통과
+    if not AUTH_ENABLED:
+        return await call_next(request)
+
     path = request.url.path
     public = (
         path in ("/login", "/logout")
