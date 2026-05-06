@@ -2,6 +2,19 @@
 {% block title %}ezadmin - 포트폴리오 목록{% endblock %}
 {% block content %}
 <style>
+    /* 매우 넓은 화면에서 한 줄에 6/7개 카드 (Bootstrap row-cols-* 가 6 까지만 기본 지원) */
+    @media (min-width: 1700px) {
+        .row.row-cols-xxl-5 > .col {
+            flex: 0 0 auto;
+            width: calc(100% / 6) !important;
+        }
+    }
+    @media (min-width: 2000px) {
+        .row.row-cols-xxl-5 > .col {
+            width: calc(100% / 7) !important;
+        }
+    }
+
     .portfolio-card {
         cursor: pointer;
         display: block;
