@@ -468,6 +468,32 @@
                                 {% if s['현금'] is not none %}{{ "{:,.0f}".format(s['현금']) }}원{% else %}-{% endif %}
                             </span>
                         </div>
+                        {% if s.get('외화자산', 0) > 0 %}
+                        <div class="pf-divider"></div>
+                        {% set _exrt = s.get('환율', 0) %}
+                        <div class="pf-row" style="background: rgba(255,149,0,0.18); border-radius: 6px 6px 0 0; padding: 4px 8px 2px; margin: 0 -4px;">
+                            <span class="label" style="color: #b45309; font-weight: 600;">외화평가</span>
+                            <span class="value" style="color: #b45309; font-weight: 600;">
+                                {% if _exrt > 0 %}
+                                    {{ "{:,.0f}".format(s['외화평가금액'] * _exrt) }}원
+                                    <span style="font-weight: 500; opacity: 0.85;">(${{ "{:,.2f}".format(s['외화평가금액']) }})</span>
+                                {% else %}
+                                    ${{ "{:,.2f}".format(s['외화평가금액']) }}
+                                {% endif %}
+                            </span>
+                        </div>
+                        <div class="pf-row" style="background: rgba(255,149,0,0.18); border-radius: 0 0 6px 6px; padding: 2px 8px 4px; margin: 0 -4px;">
+                            <span class="label" style="color: #b45309; font-weight: 600;">외화현금</span>
+                            <span class="value" style="color: #b45309; font-weight: 600;">
+                                {% if _exrt > 0 %}
+                                    {{ "{:,.0f}".format(s['외화현금'] * _exrt) }}원
+                                    <span style="font-weight: 500; opacity: 0.85;">(${{ "{:,.2f}".format(s['외화현금']) }})</span>
+                                {% else %}
+                                    ${{ "{:,.2f}".format(s['외화현금']) }}
+                                {% endif %}
+                            </span>
+                        </div>
+                        {% endif %}
                         <div class="pf-divider"></div>
                         <div class="pf-row">
                             <span class="label">매수금액</span>

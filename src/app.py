@@ -370,6 +370,35 @@ def _fetch_list_summary(pf):
                 print(f"[today_rlz] {pf.get('name','?')} ({broker}/{market}): {e}")
                 today_rlz = None
 
+        # 외화자산: 해외(US) 계좌에서만 USD + 원화환산 값을 별도 보존
+        if pf["market"] == "us":
+            foreign_evlu = float(summary.get("총평가금액") or 0)        # USD 평가
+            exrt = float(summary.get("환율") or 0)
+            krw_tot_v  = float(summary.get("원화총자산") or 0)
+            krw_evlu_v = float(summary.get("원화총평가금액") or 0)
+
+            # 외화현금(USD): (원화총자산 - 원화총평가) / 환율 우선,
+            # 환율 또는 원화 정보 없으면 외화예수금 raw 값 사용
+            if exrt > 0 and krw_tot_v > 0 and krw_evlu_v >= 0:
+                foreign_cash = max(0.0, (krw_tot_v - krw_evlu_v) / exrt)
+            else:
+                foreign_cash = float(summary.get("외화예수금") or 0)
+
+            foreign_total = foreign_evlu + foreign_cash
+            # 원화환산
+            if exrt > 0:
+                foreign_krw = foreign_total * exrt
+            elif krw_tot_v > 0:
+                foreign_krw = krw_tot_v
+            else:
+                foreign_krw = 0.0
+        else:
+            foreign_evlu = 0.0
+            foreign_cash = 0.0
+            foreign_total = 0.0
+            foreign_krw = 0.0
+            exrt = 0.0
+
         result = {
             "ok": True,
             "통화": "KRW",
@@ -380,6 +409,11 @@ def _fetch_list_summary(pf):
             "손익": pnl,
             "수익률": rt,
             "당일실현손익": today_rlz,
+            "외화평가금액":   float(foreign_evlu),    # USD 평가
+            "외화현금":       float(foreign_cash),    # USD 현금
+            "외화자산":       foreign_total,           # USD = 평가 + 현금
+            "원화환산외화자산": foreign_krw,            # KRW 환산 (전체)
+            "환율":           exrt,                    # USD/KRW 환율 (없으면 0)
             "_holdings": holdings,    # 검색 기능용 (캐시에 함께 저장)
         }
 
