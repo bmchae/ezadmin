@@ -482,6 +482,13 @@
             <th class="text-end" data-sort="dayrate" data-sort-type="number">당일등락률</th>
             <th class="text-end" data-sort="weight" data-sort-type="number">비중(%)</th>
             <th class="text-end" data-sort="weightdiff" data-sort-type="number">비중차이(%)</th>
+            <th class="text-center">
+                <div class="d-flex gap-1 justify-content-center">
+                    <button class="btn btn-warning btn-sm py-0 px-1" onclick="event.stopPropagation(); sellAll(10)">매도10%</button>
+                    <button class="btn btn-secondary btn-sm py-0 px-1" onclick="event.stopPropagation(); sellAll(50)">매도50%</button>
+                    <button class="btn btn-danger btn-sm py-0 px-1" onclick="event.stopPropagation(); sellAll(100)">매도100%</button>
+                </div>
+            </th>
         </tr>
     </thead>
     <tbody>
@@ -574,11 +581,31 @@
             <td class="text-end">
                 {{ "+" if diff > 0 else "" }}{{ "{:.2f}".format(diff) }}
             </td>
+            <td class="text-center">
+                {% if h['종목코드'] in pending_sell_codes %}
+                    <span class="badge bg-warning text-dark">매도 주문 대기중</span>
+                {% else %}
+                    <div class="d-flex gap-1 justify-content-center">
+                        <button class="btn btn-warning btn-sm py-0 px-1"
+                                onclick="event.stopPropagation(); quickSell('{{ h['종목코드'] }}', '{{ h['종목명'] }}', {{ h['보유수량']|int }}, '{{ h.get('거래소코드', '') }}', 10, this)">
+                            매도10%
+                        </button>
+                        <button class="btn btn-secondary btn-sm py-0 px-1"
+                                onclick="event.stopPropagation(); quickSell('{{ h['종목코드'] }}', '{{ h['종목명'] }}', {{ h['보유수량']|int }}, '{{ h.get('거래소코드', '') }}', 50, this)">
+                            매도50%
+                        </button>
+                        <button class="btn btn-danger btn-sm py-0 px-1"
+                                onclick="event.stopPropagation(); quickSell('{{ h['종목코드'] }}', '{{ h['종목명'] }}', {{ h['보유수량']|int }}, '{{ h.get('거래소코드', '') }}', 100, this)">
+                            매도100%
+                        </button>
+                    </div>
+                {% endif %}
+            </td>
         </tr>
     {% endfor %}
         {# 공유 drawer: JS로 클릭된 행 뒤로 이동 #}
         <tr id="stock-drawer" class="stock-drawer" style="display:none">
-            <td colspan="14">
+            <td colspan="15">
                 <div class="stock-drawer-inner">
                     <div class="drawer-left">
                         <div class="drawer-head">
@@ -1152,7 +1179,7 @@ function quickSell(code, name, qty, excgCd, percent, btn) {
     .then(r => r.json())
     .then(resp => {
         row.querySelectorAll('button').forEach(b => { b.disabled = false; });
-        btn.textContent = percent === 50 ? '매도50%' : percent === 90 ? '매도90%' : '매도100%';
+        btn.textContent = '매도' + percent + '%';
 
         if (!resp.ok) {
             alert('호가 조회 실패: ' + resp.error);
@@ -1181,7 +1208,7 @@ function quickSell(code, name, qty, excgCd, percent, btn) {
     })
     .catch(() => {
         row.querySelectorAll('button').forEach(b => { b.disabled = false; });
-        btn.textContent = percent === 50 ? '매도50%' : percent === 90 ? '매도90%' : '매도100%';
+        btn.textContent = '매도' + percent + '%';
         alert('호가 조회 중 네트워크 오류가 발생했습니다.');
     });
 }
