@@ -356,7 +356,12 @@
                 <th class="text-end">주문단가</th>
                 <th class="text-end">주문수량</th>
                 <th class="text-end">주문금액</th>
-                <th class="text-center">취소</th>
+                <th class="text-center">
+                    <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2"
+                            onclick="cancelAllOrders(this);">
+                        전체주문취소
+                    </button>
+                </th>
             </tr>
         </thead>
         <tbody>
@@ -721,6 +726,48 @@ async function sellAll(percent) {
     let msg = '';
     if (ok.length) msg += '완료 ' + ok.length + '건:\n' + ok.join('\n');
     if (fail.length) msg += (msg ? '\n\n' : '') + '실패 ' + fail.length + '건:\n' + fail.join('\n');
+    alert(msg || '완료');
+    location.reload();
+}
+
+// 전체 미체결 주문 취소 — pendingByCode 의 모든 주문을 순차 취소
+async function cancelAllOrders(btn) {
+    const allOrders = [];
+    for (const code in pendingByCode) {
+        for (const po of pendingByCode[code]) allOrders.push(po);
+    }
+    if (allOrders.length === 0) {
+        alert('미체결 주문이 없습니다.');
+        return;
+    }
+    const lines = allOrders.map(po => `${po.code} ${po.type} ${po.qty}주 (주문번호 ${po.order_no})`).join('\n');
+    if (!confirm(`총 ${allOrders.length}건의 미체결 주문을 모두 취소하시겠습니까?\n\n${lines}`)) return;
+
+    btn.disabled = true;
+    const origText = btn.textContent;
+    btn.textContent = '취소중...';
+
+    const ok = [], fail = [];
+    for (const po of allOrders) {
+        try {
+            const r = await fetch('/portfolio/' + pfName + '/cancel', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    code: po.code, order_no: po.order_no, qty: po.qty, price: po.price,
+                    excg_cd: po.excg_cd || '', krx_orgno: po.krx_orgno || '',
+                }),
+            }).then(r => r.json());
+            if (r.ok) ok.push(`${po.code} ${po.order_no}`);
+            else fail.push(`${po.code} ${po.order_no}: ${r.error}`);
+        } catch (e) {
+            fail.push(`${po.code} ${po.order_no}: ${e.message || e}`);
+        }
+    }
+
+    let msg = '';
+    if (ok.length)   msg += `취소 완료 ${ok.length}건:\n${ok.join('\n')}`;
+    if (fail.length) msg += (msg ? '\n\n' : '') + `실패 ${fail.length}건:\n${fail.join('\n')}`;
     alert(msg || '완료');
     location.reload();
 }
