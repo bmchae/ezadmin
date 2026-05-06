@@ -415,6 +415,7 @@ def _fetch_list_summary(pf):
 
         # 외화자산: US 계좌는 balance summary 에서, KR+KIS 계좌는 overseas balance 추가 조회
         foreign = None
+        f_krw_total = 0.0  # KIS 가 보고하는 KR+외화 합산 원화총자산
         if pf["market"] == "us":
             foreign = _extract_foreign(summary)
         elif pf.get("broker") == "kis":
@@ -424,6 +425,16 @@ def _fetch_list_summary(pf):
                     pf.get("account_config_name", ""))
                 # KR+US 혼합계좌: 원화총자산이 KR 자산까지 포함하므로 cash fallback 금지
                 foreign = _extract_foreign(fsummary, allow_cash_fallback=False)
+                f_krw_total = float(fsummary.get("원화총자산") or 0) if fsummary else 0.0
+                # KIS 원화총자산이 있으면 외화현금을 (원화총자산 - KR자산) / 환율 로 보정.
+                # 매도 미정산(T+2 결제 대기) USD 까지 포함되므로 증권사 앱과 일치한다.
+                if foreign and f_krw_total > 0 and foreign["환율"] > 0:
+                    kr_value = (evlu or 0) + (cash or 0)
+                    fcash_full = (f_krw_total - kr_value) / foreign["환율"] - foreign["외화평가금액"]
+                    if fcash_full > foreign["외화현금"]:
+                        foreign["외화현금"] = fcash_full
+                        foreign["외화자산"] = foreign["외화평가금액"] + fcash_full
+                        foreign["원화환산외화자산"] = foreign["외화자산"] * foreign["환율"]
             except Exception as e:
                 print(f"[foreign-kr] {pf.get('name','?')}: {e}")
         foreign = foreign or {
@@ -431,10 +442,13 @@ def _fetch_list_summary(pf):
             "외화자산": 0.0, "원화환산외화자산": 0.0, "환율": 0.0,
         }
 
-        # 총자산: KRW 평가+현금 + KR 계좌의 외화 원화환산
-        total_assets = krw_tot or (evlu + (cash or 0))
-        if pf["market"] != "us" and foreign["원화환산외화자산"] > 0:
-            total_assets = total_assets + foreign["원화환산외화자산"]
+        # 총자산: KIS 가 보고하는 원화총자산 우선, 없으면 KR 합 + 외화환산
+        if pf["market"] != "us" and f_krw_total > 0:
+            total_assets = f_krw_total
+        else:
+            total_assets = krw_tot or (evlu + (cash or 0))
+            if pf["market"] != "us" and foreign["원화환산외화자산"] > 0:
+                total_assets = total_assets + foreign["원화환산외화자산"]
 
         result = {
             "ok": True,
@@ -733,10 +747,21 @@ def portfolio_detail(name: str, request: Request):
                     pf["account_cfg"], pf["project_root"], acct_name)
                 # 혼합계좌: cash fallback 금지 (원화총자산이 KR 자산 포함)
                 foreign = _extract_foreign(fsummary, allow_cash_fallback=False)
+                # KIS 원화총자산 기반 보정: 매도 미정산 USD 까지 포함
+                f_krw_total = float(fsummary.get("원화총자산") or 0) if fsummary else 0.0
+                if foreign and f_krw_total > 0 and foreign["환율"] > 0:
+                    kr_evlu = float(summary.get("총평가금액") or 0)
+                    kr_cash = float(summary.get("D+2예수금") or summary.get("예수금") or 0)
+                    fcash_full = (f_krw_total - kr_evlu - kr_cash) / foreign["환율"] - foreign["외화평가금액"]
+                    if fcash_full > foreign["외화현금"]:
+                        foreign["외화현금"] = fcash_full
+                        foreign["외화자산"] = foreign["외화평가금액"] + fcash_full
+                        foreign["원화환산외화자산"] = foreign["외화자산"] * foreign["환율"]
                 if foreign:
                     foreign_holdings = fh or []
                     foreign_summary = fsummary or {}
                     foreign_summary["_extracted"] = foreign
+                    foreign_summary["_krw_total"] = f_krw_total
             except Exception as e:
                 print(f"[detail-foreign] {pf.get('name','?')}: {e}")
     except Exception as e:

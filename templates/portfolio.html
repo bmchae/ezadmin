@@ -193,8 +193,14 @@
 {% elif summary.get('D+2예수금') is not none %}
     {% set cash = summary.get('D+2예수금', 0) %}
     {% set foreign_extracted = (foreign_summary or {}).get('_extracted') %}
+    {% set foreign_krw_total = (foreign_summary or {}).get('_krw_total', 0) %}
     {% set foreign_krw = foreign_extracted.원화환산외화자산 if foreign_extracted else 0 %}
-    {% set total_assets = summary.get('총평가금액', 0) + cash + foreign_krw %}
+    {# KIS 원화총자산이 있으면 그걸 신뢰 (매도 미정산 USD 까지 포함되어 증권사 앱과 일치) #}
+    {% if foreign_krw_total > 0 %}
+        {% set total_assets = foreign_krw_total %}
+    {% else %}
+        {% set total_assets = summary.get('총평가금액', 0) + cash + foreign_krw %}
+    {% endif %}
     <div class="row g-3 mb-2">
         <div class="col-sm-6 col-md-6">
             <div class="card summary-card" style="border-left-color: #0d6efd;">
