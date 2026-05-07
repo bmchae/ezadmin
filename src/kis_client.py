@@ -690,25 +690,41 @@ def get_overseas_balance(acct_cfg, project_root, acct_config_name=""):
             "원화예수금": krw_cash,
         }
 
-    # 보유종목 0 + 외화평가 0 이지만 외화 잔고(매수증거금 포함)가 있으면
-    # 외화현금만이라도 노출 (자산배분2 처럼 USD 가 매수증거금에 묶인 케이스)
-    if not summary and usd_cash > 0:
-        s = output3 if isinstance(output3, dict) else {}
-        krw_tot_raw = float(s.get("tot_asst_amt", 0)) if s else 0.0
-        summary = {
-            "총매수금액": 0,
-            "총평가금액": 0,
-            "총손익금액": 0,
-            "총수익률": 0,
-            "원화총매수금액": 0,
-            "원화총평가금액": 0,
-            "원화총손익금액": 0,
-            "원화총수익률": 0,
-            "원화총자산": krw_tot_raw,    # KIS 가 합산한 KR + 외화 총자산 (매도 미정산 포함)
-            "환율": exrt,
-            "외화예수금": usd_cash,
-            "원화예수금": krw_cash,
-        }
+    # 보유종목 0 + 외화평가 0 이지만 외화 잔고가 있으면 외화현금 노출.
+    # - bmchae/자산배분2: USD 가 매수증거금(frcr_dncl_amt_2)에 잡힌 케이스
+    # - hitomato/자산배분2: USD 가 매도 결제대기(frcr_sll_amt_smtl - frcr_buy_amt_smtl) 에 잡힌 케이스
+    # 외화 거래 흔적이 전혀 없는 KR 전용 계좌는 tot_asst_amt 가 KR 현금만 반영하는 경우가 있어
+    # (hitomato/자산배분), summary 를 채우지 말아야 한다. 외화 흔적(USD cash) 있을 때만 채움.
+    if not summary:
+        # 매도 미정산 USD: frcr_sll_amt_smtl - frcr_buy_amt_smtl
+        unsettled_usd = 0.0
+        if isinstance(output2, list):
+            for cur in output2:
+                if cur.get("crcy_cd") == "USD":
+                    try:
+                        sll = float(cur.get("frcr_sll_amt_smtl") or 0)
+                        buy = float(cur.get("frcr_buy_amt_smtl") or 0)
+                        unsettled_usd += max(0.0, sll - buy)
+                    except (TypeError, ValueError):
+                        pass
+        eff_usd_cash = max(usd_cash, unsettled_usd)
+        if eff_usd_cash > 0:
+            s = output3 if isinstance(output3, dict) else {}
+            krw_tot_raw = float(s.get("tot_asst_amt", 0)) if s else 0.0
+            summary = {
+                "총매수금액": 0,
+                "총평가금액": 0,
+                "총손익금액": 0,
+                "총수익률": 0,
+                "원화총매수금액": 0,
+                "원화총평가금액": 0,
+                "원화총손익금액": 0,
+                "원화총수익률": 0,
+                "원화총자산": krw_tot_raw,    # KIS 가 합산한 KR + 외화 총자산 (매도 미정산 포함)
+                "환율": exrt,
+                "외화예수금": eff_usd_cash,
+                "원화예수금": krw_cash,
+            }
 
     return holdings, summary
 

@@ -670,7 +670,11 @@ def place_sell_order(acct_cfg, project_root, acct_config_name, stock_code, qty, 
 @_retry_on_token_expiry
 def get_orderbook_domestic(acct_cfg, project_root, acct_config_name, stock_code):
     """
-    Kiwoom 국내 10단계 호가 + 현재가 조회 (ka10004 주식호가요청).
+    Kiwoom 국내 10단계 호가 조회 (ka10004 주식호가요청).
+    응답 필드: sel_fpr_bid(매도1), sel_{N}th_pre_bid(매도2~10),
+              buy_fpr_bid(매수1), buy_{N}th_pre_bid(매수2~10).
+    가격 문자열에 부호(+/-)가 붙어있으므로 절댓값으로 처리.
+    ka10004 는 현재가/등락 정보를 제공하지 않으므로 매도1·매수1 중간값으로 근사.
     Returns KIS get_orderbook_domestic 와 동일 dict 구조.
     """
     token, base_url = _get_token(acct_cfg, project_root, acct_config_name)
@@ -679,38 +683,32 @@ def get_orderbook_domestic(acct_cfg, project_root, acct_config_name, stock_code)
                     acct_cfg["app_key"], acct_cfg["app_secret"],
                     "ka10004", body, path="/api/dostk/mrkcond")
 
-    def _i(v):
-        try:
-            return int(float(str(v or 0).replace(",", "").replace("+", "").replace("-", "-")))
-        except (TypeError, ValueError):
-            return 0
-
     def _abs_i(v):
         try:
             return abs(int(float(str(v or 0).replace(",", "").replace("+", ""))))
         except (TypeError, ValueError):
             return 0
 
-    # 매도호가: sel_pric_1~10 (낮은가→높은가 = 1→10), 수량 sel_req_1~10
-    asks = []
-    for i in range(1, 11):
-        # 키움 호가는 1=가까운 → 10=먼. KIS 와 동일하게 1->10 순으로.
-        p = _i(_kw_pick(data, f"sel_pric_{i}", f"sel_fpr_bid_{i}", default=0))
-        q = _abs_i(_kw_pick(data, f"sel_req_{i}", f"sel_fpr_req_{i}", default=0))
-        asks.append((p, q))
-    bids = []
-    for i in range(1, 11):
-        p = _i(_kw_pick(data, f"buy_pric_{i}", f"buy_fpr_bid_{i}", default=0))
-        q = _abs_i(_kw_pick(data, f"buy_req_{i}", f"buy_fpr_req_{i}", default=0))
-        bids.append((p, q))
+    # 매도호가 1~10단계 (1=가장 낮은 매도가 → 10=가장 높은 매도가)
+    asks = [(_abs_i(data.get("sel_fpr_bid")), _abs_i(data.get("sel_fpr_req")))]
+    for i in range(2, 11):
+        asks.append((_abs_i(data.get(f"sel_{i}th_pre_bid")),
+                     _abs_i(data.get(f"sel_{i}th_pre_req"))))
+
+    # 매수호가 1~10단계 (1=가장 높은 매수가 → 10=가장 낮은 매수가)
+    bids = [(_abs_i(data.get("buy_fpr_bid")), _abs_i(data.get("buy_fpr_req")))]
+    for i in range(2, 11):
+        bids.append((_abs_i(data.get(f"buy_{i}th_pre_bid")),
+                     _abs_i(data.get(f"buy_{i}th_pre_req"))))
+
+    a1, b1 = asks[0][0], bids[0][0]
+    current = (a1 + b1) // 2 if (a1 and b1) else (a1 or b1)
 
     return {
-        "current": _i(_kw_pick(data, "cur_prc", "stck_prpr", default=0)),
-        "change": _i(_kw_pick(data, "pred_pre", "prdy_vrss", default=0)),
-        "change_rate": float(_f(_kw_pick(data, "prc_chg_rt", "prdy_ctrt", default=0))),
-        "open": _i(_kw_pick(data, "open_pric", "stck_oprc", default=0)),
-        "high": _i(_kw_pick(data, "high_pric", "stck_hgpr", default=0)),
-        "low": _i(_kw_pick(data, "low_pric", "stck_lwpr", default=0)),
+        "current": current,
+        "change": 0,           # ka10004 미제공
+        "change_rate": 0.0,    # ka10004 미제공
+        "open": 0, "high": 0, "low": 0,
         "asks": asks,
         "bids": bids,
     }
