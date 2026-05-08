@@ -40,6 +40,10 @@
     /* 종목 행 드로어 (클릭시 펼침) */
     .stock-row.is-tradable { cursor: pointer; }
     .stock-row.is-tradable:hover { background: rgba(13,110,253,0.04); }
+    /* universe 비교 행 색상 (ezgain 자산배분/active 전용) */
+    .stock-row.row-not-in-universe > td { background-color: #cfe2ff !important; }
+    .stock-row.row-not-held         > td { background-color: #f8d7da !important; }
+    .stock-row.row-overweight       > td { background-color: #ffe082 !important; }
 
     /* 정렬 가능한 컬럼 헤더 */
     th[data-sort] { cursor: pointer; user-select: none; position: relative; }
@@ -549,7 +553,15 @@
     </thead>
     <tbody>
     {% for h in holdings %}
-        <tr class="stock-row {{ 'is-tradable' if pf.broker in ('kis', 'kw') else '' }}"
+        {% set _row_class = '' %}
+        {% if h.get('_phantom') %}
+            {% set _row_class = 'row-not-held' %}
+        {% elif h.get('_in_universe') is false %}
+            {% set _row_class = 'row-not-in-universe' %}
+        {% elif h.get('_overweight_alert') %}
+            {% set _row_class = 'row-overweight' %}
+        {% endif %}
+        <tr class="stock-row {{ _row_class }} {{ 'is-tradable' if pf.broker in ('kis', 'kw') and not h.get('_phantom') else '' }}"
             data-idx="{{ loop.index }}"
             data-code="{{ h['종목코드'] }}"
             data-name="{{ h['종목명'] }}"
@@ -638,7 +650,9 @@
                 {{ "+" if diff > 0 else "" }}{{ "{:.2f}".format(diff) }}
             </td>
             <td class="text-center">
-                {% if h['종목코드'] in pending_sell_codes %}
+                {% if h.get('_phantom') %}
+                    <span class="text-muted small">미보유</span>
+                {% elif h['종목코드'] in pending_sell_codes %}
                     <span class="badge bg-warning text-dark">매도 주문 대기중</span>
                 {% else %}
                     <div class="d-flex gap-1 justify-content-center">

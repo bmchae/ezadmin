@@ -345,10 +345,22 @@ def _rebal_alert(pf, holdings):
     threshold_pct = tol * 100 * 0.7
 
     universe = (pf.get("portfolio_cfg") or {}).get("universe") or {}
+    universe_codes = {
+        code for code, info in universe.items()
+        if isinstance(info, dict) and float(info.get("weight", 0) or 0) > 0
+    }
     total_target_weight = sum(
         float(v.get("weight", 0)) for v in universe.values()
         if isinstance(v, dict)
     )
+    # universe 가 정의되어 있는데 universe 종목을 하나도 보유하지 않은 경우 (미진입)
+    if universe_codes:
+        held_codes = {h.get("종목코드") for h in (holdings or [])}
+        if not (universe_codes & held_codes):
+            return True
+        # universe 에 없는 종목을 보유한 경우 (불필요 잔여 종목)
+        if held_codes - universe_codes:
+            return True
     if not holdings:
         return False
     total_evlu = sum(float(h.get("평가금액", 0) or 0) for h in holdings)
@@ -852,6 +864,55 @@ def portfolio_detail(name: str, request: Request):
         h["비중차이"] = round(actual_weight - target_weight, 2)
 
     holdings.sort(key=lambda h: h["수익률"], reverse=True)
+
+    # ezgain 자산배분/active 행 표시 (보유×universe 교집합 여부 + 비중차이 임계 + 미보유 universe 종목)
+    sub = _ezgain_subcat(pf)
+    rebal_view = sub in ("자산배분", "active")
+    threshold_pct = 0.0
+    if rebal_view:
+        try:
+            tol = float((pf["portfolio_cfg"].get("rebalancing") or {}).get("tolerance", 0) or 0)
+        except (TypeError, ValueError):
+            tol = 0.0
+        threshold_pct = tol * 100 * 0.7
+        held_codes = {h["종목코드"] for h in holdings}
+        for h in holdings:
+            code = h["종목코드"]
+            in_uni = isinstance(universe.get(code), dict) and \
+                     float(universe.get(code, {}).get("weight", 0) or 0) > 0
+            h["_in_universe"] = in_uni
+            h["_overweight_alert"] = bool(
+                in_uni and threshold_pct > 0 and abs(h["비중차이"]) >= threshold_pct
+            )
+            h["_phantom"] = False
+        # 미보유 universe 종목을 phantom row 로 추가 (가장 아래)
+        for code, info in universe.items():
+            if not isinstance(info, dict) or code in held_codes:
+                continue
+            raw_w = float(info.get("weight", 0) or 0)
+            if raw_w <= 0:
+                continue
+            tgt = round(raw_w / total_target_weight * 100, 2) if total_target_weight > 0 else round(raw_w, 2)
+            holdings.append({
+                "종목코드": code,
+                "종목명": info.get("name", code),
+                "보유수량": 0,
+                "매수평균가": 0,
+                "현재가": 0,
+                "매수금액": 0,
+                "평가금액": 0,
+                "손익금액": 0,
+                "수익률": 0,
+                "당일손익금액": None,
+                "당일수익률": None,
+                "거래소코드": "",
+                "비중": 0,
+                "목표비중": tgt,
+                "비중차이": -tgt,
+                "_in_universe": True,
+                "_overweight_alert": False,
+                "_phantom": True,
+            })
 
     broker = pf.get("broker", "kis")
     if broker == "upbit":
