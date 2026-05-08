@@ -434,11 +434,15 @@
     {% endif %}
 </div>
 <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 row-cols-xl-4 g-3 mb-3">
-{% set ns = namespace(prev_project=none) %}
+{% set ns = namespace(prev_project=none, prev_subcat=none) %}
 {% for pf in grouped[owner] %}
     {% set s = summaries.get(pf.name) %}
-    {% if _sort == 'portfolio' and ns.prev_project is not none and ns.prev_project != pf.project %}
+    {% if _sort == 'portfolio' %}
+        {% if ns.prev_project is not none and ns.prev_project != pf.project %}
     <div class="w-100"></div>
+        {% elif pf.project == 'ezgain' and ns.prev_subcat is not none and ns.prev_subcat != pf.ezgain_subcat %}
+    <div class="w-100"></div>
+        {% endif %}
     {% endif %}
     <div class="col">
         <a href="/portfolio/{{ pf.name }}" class="card h-100 text-decoration-none text-reset portfolio-card project-{{ pf.project }}">
@@ -584,6 +588,7 @@
         </a>
     </div>
     {% set ns.prev_project = pf.project %}
+    {% set ns.prev_subcat = pf.ezgain_subcat %}
 {% endfor %}
 </div>
 {% endfor %}

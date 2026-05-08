@@ -627,9 +627,26 @@ def _build_owner_chart(owner_pfs, days=30, w=300, h=44):
 # ─────────────────────────────────────────────────
 # 라우트: 포트폴리오 목록 / 상세
 # ─────────────────────────────────────────────────
+EZGAIN_SUBCAT_ORDER = {"자산배분": 0, "active": 1, "bog": 2}
+
+
+def _ezgain_subcat(pf):
+    """ezgain 포트폴리오를 active/bog/자산배분 으로 분류 (대소문자 무시)."""
+    if pf.get("project") != "ezgain":
+        return None
+    s = ((pf.get("name") or "") + " " + (pf.get("description") or "")).lower()
+    if "bog" in s:
+        return "bog"
+    if "active" in s:
+        return "active"
+    return "자산배분"
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request, sort: str = "portfolio"):
     portfolios = _get_portfolios()
+    for pf in portfolios:
+        pf["ezgain_subcat"] = _ezgain_subcat(pf)
     grouped = {}
     for pf in portfolios:
         owner = pf.get("owner", "unknown")
@@ -690,6 +707,7 @@ def index(request: Request, sort: str = "portfolio"):
         else:
             grouped[owner].sort(key=lambda p: (
                 PROJECT_ORDER.get(p.get("project"), 99),
+                EZGAIN_SUBCAT_ORDER.get(p.get("ezgain_subcat"), 0),
                 -_pf_metric(p, "총자산"),
             ))
 
@@ -1090,6 +1108,10 @@ def stats(request: Request, owner: str = ""):
 
         owner = pf.get("owner", "unknown")
         project = pf.get("project", "?")
+        # ezgain 은 서브카테고리(자산배분/active/bog) 별로 집계
+        if project == "ezgain":
+            sub = _ezgain_subcat(pf) or "자산배분"
+            project = f"ezgain ({sub})"
 
         # 포트폴리오 단위 KRW 평가 (이미 _fetch_list_summary 에서 정리된 값)
         pf_eval_krw = float(s.get("평가금액") or 0) if market != "us" else 0

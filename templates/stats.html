@@ -240,7 +240,25 @@
                 plugins: {
                     legend: {
                         position: opts.legendPos || 'right',
-                        labels: { font: { size: 11 }, boxWidth: 12, padding: 6 },
+                        labels: {
+                            font: { size: 11 }, boxWidth: 12, padding: 6,
+                            generateLabels: (chart) => {
+                                const ds = chart.data.datasets[0];
+                                const tot = ds.data.reduce((s, v) => s + v, 0);
+                                return chart.data.labels.map((label, i) => {
+                                    const v = ds.data[i];
+                                    const pct = tot > 0 ? ((v / tot) * 100).toFixed(1) : '0.0';
+                                    return {
+                                        text: `${label} (${pct}%)`,
+                                        fillStyle: ds.backgroundColor[i],
+                                        strokeStyle: ds.backgroundColor[i],
+                                        lineWidth: 0,
+                                        hidden: false,
+                                        index: i,
+                                    };
+                                });
+                            },
+                        },
                     },
                     tooltip: {
                         callbacks: {
