@@ -14,6 +14,8 @@
     /* 프로젝트별 카드 바탕색 틴트 (ezgain은 기본 색 유지) */
     .portfolio-card.project-ezinvest { background-color: #dbeafe; }
     .portfolio-card.project-ezsplit  { background-color: #fef3c7; }
+    .portfolio-card.subcat-active    { background-color: #dbeafe; }
+    .portfolio-card.subcat-bog       { background-color: #ffedd5; }
     /* 리밸런싱 임박 알림 — 비중차이가 tolerance 의 70% 이상일 때 */
     .portfolio-card.rebal-alert {
         border: 6px solid #d70015 !important;
@@ -450,7 +452,7 @@
         {% endif %}
     {% endif %}
     <div class="col">
-        <a href="/portfolio/{{ pf.name }}" class="card h-100 text-decoration-none text-reset portfolio-card project-{{ pf.project }}{% if s and s.get('rebal_alert') %} rebal-alert{% endif %}">
+        <a href="/portfolio/{{ pf.name }}" class="card h-100 text-decoration-none text-reset portfolio-card project-{{ pf.project }}{% if pf.ezgain_subcat %} subcat-{{ pf.ezgain_subcat }}{% endif %}{% if s and s.get('rebal_alert') %} rebal-alert{% endif %}">
             <div class="card-body">
                 <h6 class="card-title mb-2">{{ pf.description }}</h6>
                 <p class="card-text small text-muted mb-3">
