@@ -198,6 +198,31 @@
     @media (max-width: 900px) {
         .owner-chart, .owner-chart-empty { display: none; }  /* 좁은 화면에서 숨김 */
     }
+    /* 모바일: 오너 헤더 클릭으로 카드 펼침/접힘 */
+    @media (max-width: 768px) {
+        .owner-header {
+            cursor: pointer;
+            user-select: none;
+            padding-right: 44px;  /* chevron 자리 */
+        }
+        .owner-header .owner-toggle {
+            position: absolute;
+            right: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 24px; height: 24px;
+            display: grid; place-items: center;
+            color: #f2f2f7;
+            font-size: 14px;
+            transition: transform 0.18s ease;
+            z-index: 2;
+        }
+        .owner-header.collapsed .owner-toggle { transform: translateY(-50%) rotate(-90deg); }
+        .owner-cards { display: none !important; }
+        .owner-cards.expanded { display: flex !important; }
+    }
+    .owner-toggle { display: none; }   /* 데스크탑에서 숨김 (모바일에서 위 미디어쿼리로 노출) */
+    @media (max-width: 768px) { .owner-toggle { display: grid; } }
     /* 30일 추이 차트 */
     .pf-chart {
         margin-top: 10px;
@@ -402,7 +427,8 @@
 {% for owner in owners %}
 {% set total = owner_totals.get(owner, 0) %}
 {% set och = owner_charts.get(owner) if owner_charts is defined else none %}
-<div class="owner-header" data-owner="{{ owner }}" data-initial="{{ owner[:1]|upper }}">
+<div class="owner-header collapsed" data-owner="{{ owner }}" data-initial="{{ owner[:1]|upper }}">
+    <span class="owner-toggle" aria-hidden="true">▼</span>
     <div class="owner-avatar">{{ owner[:2]|upper }}</div>
     <div class="owner-info">
         <div class="owner-name">
@@ -440,7 +466,7 @@
     <div class="owner-chart-empty">데이터 수집 중</div>
     {% endif %}
 </div>
-<div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 row-cols-xl-4 g-3 mb-3">
+<div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 row-cols-xl-4 g-3 mb-3 owner-cards" data-owner="{{ owner }}">
 {% set ns = namespace(prev_project=none, prev_subcat=none) %}
 {% for pf in grouped[owner] %}
     {% set s = summaries.get(pf.name) %}
@@ -701,6 +727,27 @@
     window.addEventListener('scroll', function () {
         tooltip.style.display = 'none';
     }, { passive: true });
+})();
+
+// 모바일: 오너 헤더 클릭 → 카드 토글 (768px 이하에서만)
+(function() {
+    const mobileMQ = window.matchMedia('(max-width: 768px)');
+    function bind() {
+        document.querySelectorAll('.owner-header').forEach(header => {
+            if (header.dataset.toggleBound === '1') return;
+            header.dataset.toggleBound = '1';
+            header.addEventListener('click', (e) => {
+                if (!mobileMQ.matches) return;
+                if (e.target.closest('a, button, input')) return;
+                const owner = header.dataset.owner;
+                const cards = document.querySelector(`.owner-cards[data-owner="${owner}"]`);
+                if (!cards) return;
+                header.classList.toggle('collapsed');
+                cards.classList.toggle('expanded');
+            });
+        });
+    }
+    bind();
 })();
 </script>
 {% endblock %}
