@@ -329,6 +329,42 @@ def _fetch_balance(pf):
     return fn(pf["account_cfg"], pf["project_root"], acct_name)
 
 
+def _rebal_alert(pf, holdings):
+    """ezgain 자산배분/active 카테고리에서 비중차이 절대값이
+    yaml rebalancing.tolerance 의 70% 이상이면 True (리밸런싱 임박 알림)."""
+    sub = _ezgain_subcat(pf)
+    if sub not in ("자산배분", "active"):
+        return False
+    rb = (pf.get("portfolio_cfg") or {}).get("rebalancing") or {}
+    try:
+        tol = float(rb.get("tolerance", 0) or 0)
+    except (TypeError, ValueError):
+        tol = 0.0
+    if tol <= 0:
+        return False
+    threshold_pct = tol * 100 * 0.7
+
+    universe = (pf.get("portfolio_cfg") or {}).get("universe") or {}
+    total_target_weight = sum(
+        float(v.get("weight", 0)) for v in universe.values()
+        if isinstance(v, dict)
+    )
+    if not holdings:
+        return False
+    total_evlu = sum(float(h.get("평가금액", 0) or 0) for h in holdings)
+    if total_evlu <= 0:
+        return False
+    for h in holdings:
+        code = h.get("종목코드")
+        info = universe.get(code, {}) if isinstance(universe.get(code), dict) else {}
+        raw_w = float(info.get("weight", 0))
+        tgt = raw_w / total_target_weight * 100 if total_target_weight > 0 else raw_w
+        actual = float(h.get("평가금액", 0) or 0) / total_evlu * 100
+        if abs(actual - tgt) >= threshold_pct:
+            return True
+    return False
+
+
 def _extract_foreign(summary, allow_cash_fallback=True):
     """
     overseas-style summary 에서 외화 평가/현금/원화환산 추출.
@@ -461,6 +497,7 @@ def _fetch_list_summary(pf):
             "수익률": rt,
             "당일실현손익": today_rlz,
             **foreign,
+            "rebal_alert": _rebal_alert(pf, holdings),
             "_holdings": holdings,    # 검색 기능용 (캐시에 함께 저장)
         }
 
