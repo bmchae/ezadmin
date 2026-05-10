@@ -490,13 +490,19 @@ def _fetch_list_summary(pf):
             "외화자산": 0.0, "원화환산외화자산": 0.0, "환율": 0.0,
         }
 
-        # 총자산: KIS 가 보고하는 원화총자산 우선, 없으면 KR 합 + 외화환산
-        if pf["market"] != "us" and f_krw_total > 0:
+        # 총자산:
+        # - fallback: KR 평가 + KR 현금 + 외화환산자산 (항상 산정 가능)
+        # - KIS 가 보고하는 원화총자산(f_krw_total) 은 fallback 이상일 때만 신뢰.
+        #   fallback 보다 작으면 KIS overseas API 가 KR 평가를 누락한 케이스
+        #   (hitomato/자산배분2: KR holdings + USD 매도미정산 조합) 이므로 fallback 사용.
+        fallback_total = krw_tot or (evlu + (cash or 0))
+        if pf["market"] != "us" and foreign["원화환산외화자산"] > 0:
+            fallback_total = fallback_total + foreign["원화환산외화자산"]
+
+        if pf["market"] != "us" and f_krw_total >= fallback_total:
             total_assets = f_krw_total
         else:
-            total_assets = krw_tot or (evlu + (cash or 0))
-            if pf["market"] != "us" and foreign["원화환산외화자산"] > 0:
-                total_assets = total_assets + foreign["원화환산외화자산"]
+            total_assets = fallback_total
 
         result = {
             "ok": True,

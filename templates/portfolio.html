@@ -199,11 +199,15 @@
     {% set foreign_extracted = (foreign_summary or {}).get('_extracted') %}
     {% set foreign_krw_total = (foreign_summary or {}).get('_krw_total', 0) %}
     {% set foreign_krw = foreign_extracted.원화환산외화자산 if foreign_extracted else 0 %}
-    {# KIS 원화총자산이 있으면 그걸 신뢰 (매도 미정산 USD 까지 포함되어 증권사 앱과 일치) #}
-    {% if foreign_krw_total > 0 %}
+    {# fallback: KR 평가 + KR 현금 + 외화환산 (항상 산정 가능)
+       KIS 원화총자산(foreign_krw_total) 은 fallback 이상일 때만 신뢰 (매도 미정산 USD 등 포함).
+       fallback 보다 작으면 KIS overseas API 가 KR 평가를 누락한 케이스이므로 fallback 사용.
+       (예: hitomato/자산배분2 - KR holdings + USD 매도미정산 조합) #}
+    {% set fallback_total = summary.get('총평가금액', 0) + cash + foreign_krw %}
+    {% if foreign_krw_total >= fallback_total %}
         {% set total_assets = foreign_krw_total %}
     {% else %}
-        {% set total_assets = summary.get('총평가금액', 0) + cash + foreign_krw %}
+        {% set total_assets = fallback_total %}
     {% endif %}
     <div class="row g-3 mb-2">
         <div class="col-sm-6 col-md-6">
