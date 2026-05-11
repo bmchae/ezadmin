@@ -64,20 +64,19 @@ def get_balance(acct_cfg, project_root="", acct_config_name=""):  # noqa: ARG001
         })
 
     # 현재가 일괄 조회 — 상장폐지/미상장 티커가 섞이면 /v1/ticker 가 404 전체실패하므로
-    # 먼저 /v1/market/all 로 유효한 KRW 마켓만 필터링한다. 누락된 티커는 현재가 0 처리.
+    # 먼저 /v1/market/all 로 유효한 KRW 마켓만 필터링한다.
+    # 실패 시 silent 0 으로 두면 총자산이 폭락 표시되므로 raise 하여 상위 캐시가 직전 정상값을 유지하게 함.
     price_map = {}
     if coins:
         try:
             mr = requests.get(f"{UPBIT_API_URL}/v1/market/all",
                               params={"isDetails": "false"}, timeout=10)
-            if mr.status_code == 200:
-                valid_krw = {m["market"].replace("KRW-", "")
-                             for m in (mr.json() or [])
-                             if str(m.get("market", "")).startswith("KRW-")}
-            else:
-                valid_krw = set()
-        except Exception:
-            valid_krw = set()
+            mr.raise_for_status()
+            valid_krw = {m["market"].replace("KRW-", "")
+                         for m in (mr.json() or [])
+                         if str(m.get("market", "")).startswith("KRW-")}
+        except Exception as e:
+            raise Exception(f"Upbit /v1/market/all 조회 실패: {e}") from e
 
         tradable = [c["currency"] for c in coins if c["currency"] in valid_krw]
         if tradable:
@@ -85,12 +84,26 @@ def get_balance(acct_cfg, project_root="", acct_config_name=""):  # noqa: ARG001
             try:
                 r = requests.get(f"{UPBIT_API_URL}/v1/ticker",
                                  params={"markets": markets}, timeout=10)
-                if r.status_code == 200:
-                    for t in r.json() or []:
-                        sym = str(t.get("market", "")).replace("KRW-", "")
-                        price_map[sym] = float(t.get("trade_price") or 0)
-            except Exception:
-                pass
+                r.raise_for_status()
+                for t in r.json() or []:
+                    sym = str(t.get("market", "")).replace("KRW-", "")
+                    price_map[sym] = float(t.get("trade_price") or 0)
+            except Exception as e:
+                raise Exception(f"Upbit /v1/ticker batch 조회 실패: {e}") from e
+
+            # Upbit batch 가 가끔 일부 코인을 누락하는 케이스 대비: 누락된 코인은 단건 재시도
+            missing = [c for c in tradable if c not in price_map]
+            for c in missing:
+                try:
+                    r = requests.get(f"{UPBIT_API_URL}/v1/ticker",
+                                     params={"markets": f"KRW-{c}"}, timeout=5)
+                    if r.status_code == 200:
+                        for t in r.json() or []:
+                            sym = str(t.get("market", "")).replace("KRW-", "")
+                            price_map[sym] = float(t.get("trade_price") or 0)
+                except Exception:
+                    # 단건마저 실패하면 평가금액 0 으로 둠 (개별 코인만 영향, 전체는 보존)
+                    pass
 
     holdings = []
     total_pchs = 0

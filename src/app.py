@@ -545,6 +545,8 @@ def _fetch_list_summary(pf):
         return {"ok": False, "error": str(e), "_holdings": []}
 
 
+STALE_FALLBACK_MAX = 3600  # 직전 정상값을 fallback 으로 쓸 수 있는 최대 시간 (초)
+
 def _get_cached_summary(pf):
     name = pf["name"]
     now = time.time()
@@ -554,6 +556,13 @@ def _get_cached_summary(pf):
     result = _fetch_list_summary(pf)
     if result.get("ok"):
         _summary_cache[name] = (now, result)
+        return result
+    # 일시적 fetch 실패: 직전 정상값이 STALE_FALLBACK_MAX 이내면 stale 로 반환
+    # (Upbit ticker 일시 실패 등으로 총자산이 폭락 표시되는 것 방지)
+    if entry and now - entry[0] < STALE_FALLBACK_MAX:
+        stale = dict(entry[1])
+        stale["_stale"] = True
+        return stale
     return result
 
 
