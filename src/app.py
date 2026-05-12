@@ -495,11 +495,15 @@ def _fetch_list_summary(pf):
         # - KIS 가 보고하는 원화총자산(f_krw_total) 은 fallback 이상일 때만 신뢰.
         #   fallback 보다 작으면 KIS overseas API 가 KR 평가를 누락한 케이스
         #   (hitomato/자산배분2: KR holdings + USD 매도미정산 조합) 이므로 fallback 사용.
+        # - 단, 보유종목이 없는 단타 사이클 직후 계좌(myBog 등)에서는 KIS '원화총자산'이
+        #   결제 흐름 반영이 지연되어 D+2예수금보다 크게 보고되는 경우가 있어
+        #   fallback (= D+2예수금 + 외화환산) 을 사용해야 당일증감이 정확.
         fallback_total = krw_tot or (evlu + (cash or 0))
         if pf["market"] != "us" and foreign["원화환산외화자산"] > 0:
             fallback_total = fallback_total + foreign["원화환산외화자산"]
 
-        if pf["market"] != "us" and f_krw_total >= fallback_total:
+        has_kr_holdings = bool(holdings)
+        if pf["market"] != "us" and has_kr_holdings and f_krw_total >= fallback_total:
             total_assets = f_krw_total
         else:
             total_assets = fallback_total
