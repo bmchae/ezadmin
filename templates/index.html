@@ -200,6 +200,12 @@
     }
     /* 모바일: 오너 헤더 클릭으로 카드 펼침/접힘 */
     @media (max-width: 768px) {
+        /* 컨테이너 좌우 여백 최소화 → 오너 박스/카드가 화면 90% 폭까지 확장 */
+        body > .container-fluid {
+            padding-left: 5% !important;
+            padding-right: 5% !important;
+            max-width: 100% !important;
+        }
         .owner-header {
             cursor: pointer;
             user-select: none;
