@@ -659,8 +659,8 @@ def _chart_from_rows(rows, w=300, h=56):
         "first_date": rows[0][0],
         "last_date": rows[-1][0],
         "realized_30d": int(sum(realized)),
-        "asset_chg_30d": float(asset_chg),
-        "asset_chg_rate_30d": float(asset_chg_rate),
+        "asset_chg": float(asset_chg),
+        "asset_chg_rate": float(asset_chg_rate),
         "points": points,
     }
 
@@ -673,9 +673,10 @@ def _build_chart(pf, days=30, w=300, h=56):
     return _chart_from_rows(rows, w=w, h=h)
 
 
-def _build_owner_chart(owner_pfs, days=30, w=300, h=44):
+def _owner_aggregate_rows(owner_pfs, days):
+    """오너 산하 포트폴리오들의 일자별 자산/실현손익 집계 rows 반환."""
     if not owner_pfs:
-        return None
+        return []
     by_date = {}
     for pf in owner_pfs:
         try:
@@ -690,13 +691,30 @@ def _build_owner_chart(owner_pfs, days=30, w=300, h=44):
             if r is not None:
                 entry[1] += r
     if not by_date:
-        return None
-    sorted_dates = sorted(by_date.keys())
-    rows = [
+        return []
+    return [
         (d, by_date[d][0] if by_date[d][2] else None, by_date[d][1])
-        for d in sorted_dates
+        for d in sorted(by_date.keys())
     ]
+
+
+def _build_owner_chart(owner_pfs, days=30, w=300, h=44):
+    rows = _owner_aggregate_rows(owner_pfs, days)
+    if not rows:
+        return None
     return _chart_from_rows(rows, w=w, h=h)
+
+
+def _owner_asset_change(owner_pfs, days):
+    """오너 단위 자산 증감액/증감률 (첫 유효 스냅샷 → 마지막 유효 스냅샷)."""
+    rows = _owner_aggregate_rows(owner_pfs, days)
+    assets = [a for _, a, _ in rows if a is not None]
+    if len(assets) < 2:
+        return None, None
+    first, last = assets[0], assets[-1]
+    chg = last - first
+    rate = (chg / first * 100) if first else 0.0
+    return chg, rate
 
 
 # ─────────────────────────────────────────────────
@@ -791,6 +809,12 @@ def index(request: Request, sort: str = "portfolio"):
         owner: _build_owner_chart(grouped[owner], days=365, w=720, h=80)
         for owner in sorted_owners
     }
+    owner_month_chg = {}
+    owner_month_chg_rate = {}
+    for owner in sorted_owners:
+        chg, rate = _owner_asset_change(grouped[owner], days=30)
+        owner_month_chg[owner] = chg
+        owner_month_chg_rate[owner] = rate
 
     return templates.TemplateResponse(
         request, "index.html",
@@ -801,6 +825,8 @@ def index(request: Request, sort: str = "portfolio"):
             "owner_totals": owner_totals,
             "owner_day_chg": owner_day_chg,
             "owner_day_chg_rate": owner_day_chg_rate,
+            "owner_month_chg": owner_month_chg,
+            "owner_month_chg_rate": owner_month_chg_rate,
             "charts": charts,
             "owner_charts": owner_charts,
             "sort_mode": sort_mode,

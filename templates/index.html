@@ -446,11 +446,19 @@
         {% if total %}
             <div class="owner-total-wrap">
                 <div class="owner-total">{{ "{:,.0f}".format(total) }}원</div>
+                {% set omc = owner_month_chg.get(owner) if owner_month_chg is defined else none %}
+                {% set omr = owner_month_chg_rate.get(owner) if owner_month_chg_rate is defined else none %}
+                {% if omc is not none %}
+                <div class="owner-day-chg {{ 'up' if omc > 0 else 'down' if omc < 0 else '' }}">
+                    30d : {{ "+" if omc > 0 else "" }}{{ "{:,.0f}".format(omc) }}원
+                    ({{ "+" if omr > 0 else "" }}{{ "{:.2f}".format(omr) }}%)
+                </div>
+                {% endif %}
                 {% set odc = owner_day_chg.get(owner) if owner_day_chg is defined else none %}
                 {% set odr = owner_day_chg_rate.get(owner) if owner_day_chg_rate is defined else none %}
                 {% if odc is not none %}
                 <div class="owner-day-chg {{ 'up' if odc > 0 else 'down' if odc < 0 else '' }}">
-                    {{ "+" if odc > 0 else "" }}{{ "{:,.0f}".format(odc) }}원
+                    1d : {{ "+" if odc > 0 else "" }}{{ "{:,.0f}".format(odc) }}원
                     ({{ "+" if odr > 0 else "" }}{{ "{:.2f}".format(odr) }}%)
                 </div>
                 {% endif %}
@@ -595,8 +603,8 @@
                             <div class="pf-chart-head">
                                 <span>30일 추이</span>
                                 <span class="pf-chart-stats">
-                                    {% set a30 = ch.asset_chg_30d %}
-                                    {% set a30r = ch.asset_chg_rate_30d %}
+                                    {% set a30 = ch.asset_chg %}
+                                    {% set a30r = ch.asset_chg_rate %}
                                     <span class="asset-30d {{ 'text-profit' if a30 > 0 else 'text-loss' if a30 < 0 else 'text-muted' }}">
                                         30일 자산 {{ "+" if a30 > 0 else "" }}{{ "{:,.0f}".format(a30) }}원 ({{ "+" if a30 > 0 else "" }}{{ "{:.2f}".format(a30r) }}%)
                                     </span>
