@@ -238,9 +238,17 @@
         color: var(--apple-text-tertiary);
         margin-bottom: 2px;
     }
-    .pf-chart-head .realized-30d {
+    .pf-chart-head .realized-30d,
+    .pf-chart-head .asset-30d {
         font-variant-numeric: tabular-nums;
         font-weight: 600;
+    }
+    .pf-chart-head .pf-chart-stats {
+        display: inline-flex;
+        gap: 8px;
+        align-items: baseline;
+        flex-wrap: wrap;
+        justify-content: flex-end;
     }
     .pf-chart-body {
         position: relative;
@@ -586,9 +594,16 @@
                         <div class="pf-chart">
                             <div class="pf-chart-head">
                                 <span>30일 추이</span>
-                                {% set r30 = ch.realized_30d %}
-                                <span class="realized-30d {{ 'text-profit' if r30 > 0 else 'text-loss' if r30 < 0 else 'text-muted' }}">
-                                    30일 실현 {{ "+" if r30 > 0 else "" }}{{ "{:,.0f}".format(r30) }}원
+                                <span class="pf-chart-stats">
+                                    {% set a30 = ch.asset_chg_30d %}
+                                    {% set a30r = ch.asset_chg_rate_30d %}
+                                    <span class="asset-30d {{ 'text-profit' if a30 > 0 else 'text-loss' if a30 < 0 else 'text-muted' }}">
+                                        30일 자산 {{ "+" if a30 > 0 else "" }}{{ "{:,.0f}".format(a30) }}원 ({{ "+" if a30 > 0 else "" }}{{ "{:.2f}".format(a30r) }}%)
+                                    </span>
+                                    {% set r30 = ch.realized_30d %}
+                                    <span class="realized-30d {{ 'text-profit' if r30 > 0 else 'text-loss' if r30 < 0 else 'text-muted' }}">
+                                        30일 실현 {{ "+" if r30 > 0 else "" }}{{ "{:,.0f}".format(r30) }}원
+                                    </span>
                                 </span>
                             </div>
                             <div class="pf-chart-body">

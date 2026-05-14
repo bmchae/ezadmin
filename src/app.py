@@ -644,6 +644,11 @@ def _chart_from_rows(rows, w=300, h=56):
             pt["y"] = round(y_area(a), 2)
         points.append(pt)
 
+    first_asset = assets[0][1]
+    last_asset = assets[-1][1]
+    asset_chg = last_asset - first_asset
+    asset_chg_rate = (asset_chg / first_asset * 100) if first_asset else 0.0
+
     return {
         "area": " ".join(area_parts),
         "line": " ".join(line_parts),
@@ -654,6 +659,8 @@ def _chart_from_rows(rows, w=300, h=56):
         "first_date": rows[0][0],
         "last_date": rows[-1][0],
         "realized_30d": int(sum(realized)),
+        "asset_chg_30d": float(asset_chg),
+        "asset_chg_rate_30d": float(asset_chg_rate),
         "points": points,
     }
 
