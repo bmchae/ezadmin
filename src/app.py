@@ -21,6 +21,7 @@ from werkzeug.security import check_password_hash
 
 from config_loader import load_all_portfolios, KNOWN_OWNERS
 from db import init_db, upsert_today, get_recent_snapshots
+from market_index import get_all_indices
 from kis_client import (get_domestic_balance, get_overseas_balance,
                         get_domestic_today_realized_pl,
                         get_overseas_today_realized_pl,
@@ -816,6 +817,8 @@ def index(request: Request, sort: str = "portfolio"):
         owner_month_chg[owner] = chg
         owner_month_chg_rate[owner] = rate
 
+    indices = get_all_indices(w=100, h=30)
+
     return templates.TemplateResponse(
         request, "index.html",
         {
@@ -829,6 +832,7 @@ def index(request: Request, sort: str = "portfolio"):
             "owner_month_chg_rate": owner_month_chg_rate,
             "charts": charts,
             "owner_charts": owner_charts,
+            "indices": indices,
             "sort_mode": sort_mode,
         },
     )

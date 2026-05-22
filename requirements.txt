@@ -10,3 +10,4 @@ werkzeug>=3.1            # check_password_hash (비밀번호 해시 검증, Flas
 pyyaml>=6.0              # 포트폴리오 yaml + 토큰 파일 파싱
 requests>=2.32           # KIS/KW/Upbit REST API 호출
 pyjwt>=2.10              # Upbit REST 인증 (HS256 서명)
+yfinance>=0.2            # 시장 지표 카드(코스피/코스닥/나스닥/금 등) 시세 fetch
