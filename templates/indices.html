@@ -1,0 +1,388 @@
+{% extends "base.html" %}
+{% block title %}ezadmin - 지수{% endblock %}
+{% block content %}
+<style>
+    /* ───── 카드 (메인 페이지 .index-card 와 동일 스타일) ───── */
+    .index-card {
+        background: var(--apple-surface, #f5f5f7);
+        border: 1px solid var(--apple-divider, rgba(60,60,67,0.12));
+        border-radius: 10px;
+        padding: 10px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+    }
+    .index-card.overheated {
+        border-color: #ff3b30;
+        box-shadow: 0 0 0 5px #ff3b30, 0 2px 14px rgba(255,59,48,0.26);
+    }
+    .index-head {
+        display: flex; justify-content: space-between; align-items: baseline;
+        gap: 6px; min-width: 0;
+    }
+    .index-label {
+        font-size: 13px; font-weight: 600; letter-spacing: -0.08px;
+        color: var(--apple-text, #1d1d1f);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .index-code {
+        font-size: 10px; color: var(--apple-text-tertiary, #86868b);
+        font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    .index-price {
+        font-size: 18px; font-weight: 700; letter-spacing: -0.022em;
+        font-variant-numeric: tabular-nums; color: var(--apple-text, #1d1d1f);
+    }
+    .index-chg {
+        font-size: 12px; font-weight: 600;
+        font-variant-numeric: tabular-nums; letter-spacing: -0.08px;
+    }
+    .index-chg.up   { color: #ff3b30; }
+    .index-chg.down { color: #0d6efd; }
+    .index-chg.flat { color: var(--apple-text-tertiary, #86868b); }
+    .index-spark { width: 100%; height: 40px; display: block; margin-top: 2px; }
+    .index-ma50 {
+        font-size: 10px; color: var(--apple-text-tertiary, #86868b);
+        font-variant-numeric: tabular-nums; margin-top: 4px; line-height: 1.25;
+        white-space: nowrap;
+    }
+    .index-ma50 .ma-dev      { margin-left: 2px; }
+    .index-ma50 .ma-dev-last {
+        margin-left: 4px; font-size: 20px; font-weight: 700;
+        vertical-align: baseline;
+    }
+    .index-ma50 .ma-dev.up, .index-ma50 .ma-dev-last.up     { color: #ff3b30; }
+    .index-ma50 .ma-dev.down, .index-ma50 .ma-dev-last.down { color: #0d6efd; }
+
+    /* ───── 페이지 레이아웃 ───── */
+    .indices-page-row {
+        display: grid;
+        grid-template-columns: 280px 1fr;
+        gap: 16px;
+        margin-bottom: 14px;
+        align-items: stretch;
+    }
+    .index-detail {
+        background: var(--apple-surface, #f5f5f7);
+        border: 1px solid var(--apple-divider, rgba(60,60,67,0.12));
+        border-radius: 10px;
+        padding: 12px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-width: 0;
+    }
+    .index-detail-head {
+        display: flex; justify-content: space-between; align-items: baseline;
+    }
+    .index-detail-title {
+        font-size: 13px; font-weight: 600;
+        color: var(--apple-text, #1d1d1f); letter-spacing: -0.08px;
+    }
+    .index-detail-legend {
+        font-size: 10px; font-weight: 400;
+        color: var(--apple-text-tertiary, #86868b);
+        margin-left: 8px;
+    }
+    .index-detail-legend .legend-swatch {
+        display: inline-block; vertical-align: middle;
+        width: 14px; height: 2px; margin: 0 3px 0 6px;
+    }
+    .index-detail-legend .legend-swatch.dev   { background: #1d1d1f; }
+    .index-detail-legend .legend-swatch.price {
+        border-top: 2px dashed #8e8e93; background: transparent;
+        height: 0; margin-bottom: 2px;
+    }
+    .index-detail-meta {
+        font-size: 10px; color: var(--apple-text-tertiary, #86868b);
+        font-variant-numeric: tabular-nums;
+    }
+    .index-detail-chart-body { position: relative; }
+    .index-detail-chart {
+        width: 100%; height: 180px; display: block;
+        cursor: crosshair;
+    }
+    /* 마우스오버 툴팁 (body 1개 공용) */
+    .idx-tooltip {
+        position: fixed;
+        z-index: 9999;
+        pointer-events: none;
+        background: rgba(28,28,30,0.94);
+        color: #fff;
+        font-size: 11px;
+        padding: 6px 10px;
+        border-radius: 6px;
+        white-space: nowrap;
+        display: none;
+        transform: translate(-50%, -100%);
+        margin-top: -8px;
+        font-variant-numeric: tabular-nums;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+    }
+    .idx-tooltip .tt-date { font-weight: 600; margin-bottom: 3px; opacity: 0.9; }
+    .idx-tooltip .tt-row { display: flex; justify-content: space-between; gap: 10px; }
+    .idx-tooltip .tt-label { color: rgba(255,255,255,0.55); margin-right: 6px; }
+    .idx-tooltip .tt-dev.up    { color: #ff6b62; }
+    .idx-tooltip .tt-dev.down  { color: #5e9eff; }
+    .idx-tooltip .tt-price.up   { color: #ff6b62; }
+    .idx-tooltip .tt-price.down { color: #5e9eff; }
+    .index-detail-stats {
+        display: flex; flex-wrap: wrap; gap: 14px; row-gap: 4px;
+        font-size: 11px; color: var(--apple-text-secondary, rgba(0,0,0,0.7));
+        font-variant-numeric: tabular-nums;
+    }
+    .index-detail-stats .stat-label { color: var(--apple-text-tertiary, #86868b); margin-right: 4px; }
+    .index-detail-stats .stat-value { font-weight: 600; }
+    .index-detail-stats .stat-value.up   { color: #ff3b30; }
+    .index-detail-stats .stat-value.down { color: #0d6efd; }
+
+    .index-detail-fail {
+        font-size: 11px; color: var(--apple-text-tertiary, #86868b);
+        padding: 12px 0;
+    }
+
+    @media (max-width: 768px) {
+        .indices-page-row {
+            grid-template-columns: 1fr;
+            gap: 8px;
+        }
+        body > .container-fluid {
+            padding-left: 5% !important;
+            padding-right: 5% !important;
+            max-width: 100% !important;
+        }
+    }
+</style>
+
+<h3 class="mb-3" style="letter-spacing: -0.022em;">지수</h3>
+
+{% for idx in indices %}
+{% set _last_dev = idx.ma_dev[-1] if (idx.ok and idx.ma_dev) else none %}
+<div class="indices-page-row">
+    <!-- 좌측: 컴팩트 카드 -->
+    <div class="index-card{% if _last_dev is not none and (_last_dev|round|int) > 30 %} overheated{% endif %}">
+        <div class="index-head">
+            <span class="index-label">{{ idx.label }}</span>
+            <span class="index-code">{{ idx.code }}</span>
+        </div>
+        {% if idx.ok %}
+            {% set chg = idx.chg %}
+            {% set rate = idx.rate %}
+            {% set last = idx.last %}
+            <div class="index-price">
+                {% if last >= 1000 %}{{ "{:,.2f}".format(last) }}{% else %}{{ "{:.2f}".format(last) }}{% endif %}
+            </div>
+            <div class="index-chg {{ 'up' if chg > 0 else 'down' if chg < 0 else 'flat' }}">
+                {{ "+" if chg > 0 else "" }}{{ "{:,.2f}".format(chg) }}
+                ({{ "+" if rate > 0 else "" }}{{ "{:.2f}".format(rate) }}%)
+            </div>
+            {% set sp = idx.spark %}
+            <svg class="index-spark" viewBox="0 0 {{ sp.w }} {{ sp.h }}" preserveAspectRatio="none">
+                <path d="{{ sp.area }}" fill="{{ '#ff3b30' if sp.up else '#0d6efd' }}" fill-opacity="0.16"/>
+                <path d="{{ sp.line }}" fill="none" stroke="{{ '#ff3b30' if sp.up else '#0d6efd' }}"
+                      stroke-width="1.2" stroke-linejoin="round"/>
+            </svg>
+            {% if idx.ma_dev %}
+            <div class="index-ma50">
+                50일 :
+                {% for v in idx.ma_dev[:-1] %}
+                <span class="ma-dev {{ 'up' if v >= 0 else 'down' }}">{{ "+" if v >= 0 else "" }}{{ "{:.0f}".format(v) }}</span>
+                {% endfor %}
+                {% set last = idx.ma_dev[-1] %}
+                <span class="ma-dev-last {{ 'up' if last >= 0 else 'down' }}">{{ "+" if last >= 0 else "" }}{{ "{:.0f}".format(last) }}%</span>
+            </div>
+            {% endif %}
+        {% else %}
+            <div class="text-muted small" style="padding:4px 0;">데이터 수집 중…</div>
+        {% endif %}
+    </div>
+
+    <!-- 우측: 50일 평균 대비 격차 디테일 -->
+    <div class="index-detail">
+        <div class="index-detail-head">
+            <div class="index-detail-title">
+                {{ idx.label }} — 50일 평균 대비 격차
+                {% if idx.dev_chart and idx.dev_chart.has_price %}
+                <span class="index-detail-legend">
+                    <span class="legend-swatch dev"></span>편차
+                    <span class="legend-swatch price"></span>지수
+                </span>
+                {% endif %}
+            </div>
+            {% if idx.dev_chart %}
+            <div class="index-detail-meta">
+                {{ idx.dev_chart.first_date }} ~ {{ idx.dev_chart.last_date }} ({{ idx.dev_chart.n }}일)
+            </div>
+            {% endif %}
+        </div>
+        {% if idx.dev_chart %}
+            {% set dc = idx.dev_chart %}
+            <div class="index-detail-chart-body">
+            <svg class="index-detail-chart" viewBox="0 0 {{ dc.w }} {{ dc.h }}" preserveAspectRatio="none">
+                <!-- 편차 임계선 -->
+                {% for t in dc.thresholds %}
+                <line x1="0" y1="{{ "%.1f"|format(t.y) }}" x2="{{ dc.w - 36 }}" y2="{{ "%.1f"|format(t.y) }}"
+                      stroke="{{ t.color }}" stroke-width="0.6"
+                      stroke-dasharray="{% if t.value == 0 %}1,3{% else %}3,3{% endif %}"
+                      opacity="0.55" />
+                <text x="{{ dc.w - 4 }}" y="{{ "%.1f"|format(t.y + 3) }}" text-anchor="end" font-size="9"
+                      font-family="-apple-system, sans-serif" fill="{{ t.color }}" opacity="0.85">
+                    {{ "+" if t.value > 0 else "" }}{{ t.value }}%
+                </text>
+                {% endfor %}
+                <!-- 편차 영역 -->
+                <path d="{{ dc.dev_area }}" fill="{{ dc.last_color }}" fill-opacity="0.10"/>
+                <!-- 가격 라인 (회색 dash, 편차보다 뒤에 깔리도록 먼저) -->
+                {% if dc.has_price %}
+                <path d="{{ dc.price_line }}" fill="none" stroke="#8e8e93"
+                      stroke-width="1.0" stroke-dasharray="4,3" stroke-linejoin="round" opacity="0.75"/>
+                {% endif %}
+                <!-- 편차 라인 -->
+                <path d="{{ dc.dev_line }}" fill="none" stroke="{{ dc.last_color }}"
+                      stroke-width="1.5" stroke-linejoin="round"/>
+                <!-- 마지막 편차 포인트 -->
+                <circle cx="{{ "%.1f"|format(dc.last_x) }}" cy="{{ "%.1f"|format(dc.last_y) }}"
+                        r="3.2" fill="{{ dc.last_color }}" stroke="#fff" stroke-width="1"/>
+                <!-- 마우스오버 커서/포인트 -->
+                <line class="idx-cursor" x1="0" y1="0" x2="0" y2="{{ dc.h }}"
+                      stroke="#86868b" stroke-width="0.6" stroke-dasharray="2,2"
+                      style="display:none" vector-effect="non-scaling-stroke"/>
+                <circle class="idx-dot-dev" r="3" fill="{{ dc.last_color }}" stroke="#fff"
+                        stroke-width="1" style="display:none"/>
+                {% if dc.has_price %}
+                <circle class="idx-dot-price" r="2.6" fill="#8e8e93" stroke="#fff"
+                        stroke-width="1" style="display:none"/>
+                {% endif %}
+            </svg>
+            <script type="application/json" class="idx-chart-data">{{ dc.points | tojson }}</script>
+            </div>
+            <div class="index-detail-stats">
+                <span><span class="stat-label">현재</span>
+                    <span class="stat-value {{ 'up' if dc.last_v > 0 else 'down' if dc.last_v < 0 else '' }}">
+                        {{ "+" if dc.last_v >= 0 else "" }}{{ "%.1f"|format(dc.last_v) }}%
+                    </span></span>
+                <span><span class="stat-label">최고</span>
+                    <span class="stat-value up">+{{ "%.1f"|format(dc.max) }}%</span></span>
+                <span><span class="stat-label">최저</span>
+                    <span class="stat-value {{ 'down' if dc.min < 0 else 'up' }}">
+                        {{ "+" if dc.min >= 0 else "" }}{{ "%.1f"|format(dc.min) }}%
+                    </span></span>
+                <span><span class="stat-label">평균</span>
+                    <span class="stat-value {{ 'up' if dc.avg > 0 else 'down' if dc.avg < 0 else '' }}">
+                        {{ "+" if dc.avg >= 0 else "" }}{{ "%.1f"|format(dc.avg) }}%
+                    </span></span>
+            </div>
+        {% else %}
+            <div class="index-detail-fail">데이터 부족 — MA(50) 계산용 거래일이 부족합니다.</div>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
+
+<script>
+(function () {
+    const fmtPct = (v) => (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+    const fmtPrice = (v) => {
+        if (v == null) return '-';
+        if (Math.abs(v) >= 1000) return v.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        return v.toFixed(2);
+    };
+    const sign = (v) => v > 0 ? 'up' : (v < 0 ? 'down' : '');
+
+    // 공용 툴팁 1개
+    const tooltip = document.createElement('div');
+    tooltip.className = 'idx-tooltip';
+    document.body.appendChild(tooltip);
+
+    document.querySelectorAll('.index-detail-chart-body').forEach(function (body) {
+        const svg = body.querySelector('svg.index-detail-chart');
+        const dataEl = body.querySelector('.idx-chart-data');
+        const cursor = body.querySelector('.idx-cursor');
+        const dotDev = body.querySelector('.idx-dot-dev');
+        const dotPrice = body.querySelector('.idx-dot-price');
+        if (!svg || !dataEl) return;
+
+        let points;
+        try { points = JSON.parse(dataEl.textContent); } catch (e) { return; }
+        if (!points || !points.length) return;
+
+        const vb = svg.viewBox.baseVal;
+        const vbW = vb.width || 720;
+
+        function nearest(vbX) {
+            let bi = 0, bd = Infinity;
+            for (let i = 0; i < points.length; i++) {
+                const d = Math.abs(points[i].x - vbX);
+                if (d < bd) { bd = d; bi = i; }
+            }
+            return bi;
+        }
+
+        function onMove(e) {
+            const rect = svg.getBoundingClientRect();
+            if (!rect.width) return;
+            const relX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+            const vbX = relX / rect.width * vbW;
+            const p = points[nearest(vbX)];
+
+            // 커서/점
+            cursor.setAttribute('x1', p.x);
+            cursor.setAttribute('x2', p.x);
+            cursor.style.display = '';
+            dotDev.setAttribute('cx', p.x);
+            dotDev.setAttribute('cy', p.y_dev);
+            dotDev.style.display = '';
+            if (dotPrice && p.y_price != null) {
+                dotPrice.setAttribute('cx', p.x);
+                dotPrice.setAttribute('cy', p.y_price);
+                dotPrice.style.display = '';
+            }
+
+            // 툴팁 내용
+            let html = '<div class="tt-date">' + p.date + '</div>'
+                + '<div class="tt-row"><span class="tt-label">50일편차</span>'
+                + '<span class="tt-dev ' + sign(p.dev) + '">' + fmtPct(p.dev) + '</span></div>';
+            if (p.price != null) {
+                html += '<div class="tt-row"><span class="tt-label">종가</span>'
+                     + '<span>' + fmtPrice(p.price) + '</span></div>'
+                     + '<div class="tt-row"><span class="tt-label">기간수익</span>'
+                     + '<span class="tt-price ' + sign(p.price_pct) + '">' + fmtPct(p.price_pct) + '</span></div>';
+            }
+            tooltip.innerHTML = html;
+
+            // 위치 (svg 위쪽에 띄움)
+            const pxX = rect.left + (p.x / vbW) * rect.width;
+            const pxY = rect.top;
+            const half = 90;
+            const clampedX = Math.max(half + 4, Math.min(window.innerWidth - half - 4, pxX));
+            tooltip.style.left = clampedX + 'px';
+            tooltip.style.top = pxY + 'px';
+            tooltip.style.display = 'block';
+        }
+
+        function onLeave() {
+            cursor.style.display = 'none';
+            dotDev.style.display = 'none';
+            if (dotPrice) dotPrice.style.display = 'none';
+            tooltip.style.display = 'none';
+        }
+
+        svg.addEventListener('mousemove', onMove);
+        svg.addEventListener('mouseleave', onLeave);
+        svg.addEventListener('touchstart', function (e) {
+            if (e.touches && e.touches[0]) {
+                onMove({ clientX: e.touches[0].clientX });
+                e.stopPropagation();
+            }
+        }, { passive: true });
+        svg.addEventListener('touchmove', function (e) {
+            if (e.touches && e.touches[0]) onMove({ clientX: e.touches[0].clientX });
+        }, { passive: true });
+        svg.addEventListener('touchend', onLeave);
+    });
+
+    window.addEventListener('scroll', function () { tooltip.style.display = 'none'; }, { passive: true });
+})();
+</script>
+{% endblock %}

@@ -817,8 +817,6 @@ def index(request: Request, sort: str = "portfolio"):
         owner_month_chg[owner] = chg
         owner_month_chg_rate[owner] = rate
 
-    indices = get_all_indices(w=100, h=30)
-
     return templates.TemplateResponse(
         request, "index.html",
         {
@@ -832,7 +830,6 @@ def index(request: Request, sort: str = "portfolio"):
             "owner_month_chg_rate": owner_month_chg_rate,
             "charts": charts,
             "owner_charts": owner_charts,
-            "indices": indices,
             "sort_mode": sort_mode,
         },
     )
@@ -1342,6 +1339,26 @@ def stats(request: Request, owner: str = ""):
             "all_owners": all_owners,
             "selected_owner": selected_owner,
         },
+    )
+
+
+@app.get("/indices", response_class=HTMLResponse)
+def indices_page(request: Request):
+    """지수 상세 페이지: 5종목 카드 + 50일 평균 대비 격차 차트.
+    카드는 MA(50) 마지막 편차가 큰 순서대로 정렬 (과열 종목이 상단)."""
+    data = get_all_indices(w=140, h=40)
+
+    def _last_dev(d):
+        if not d.get("ok"):
+            return float("-inf")
+        dev = d.get("ma_dev") or []
+        return dev[-1] if dev else float("-inf")
+
+    data.sort(key=_last_dev, reverse=True)
+
+    return templates.TemplateResponse(
+        request, "indices.html",
+        {"indices": data},
     )
 
 
