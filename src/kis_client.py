@@ -3,9 +3,11 @@ KIS Open API를 직접 호출하여 계좌 잔고를 조회한다.
 ezgain/ezinvest의 기존 모듈을 import하지 않고 독립적으로 동작한다.
 (기존 모듈은 글로벌 상태를 사용하여 여러 계좌를 동시에 조회할 수 없음)
 """
+import functools
 import hashlib
 import json
 import os
+import random
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -232,6 +234,61 @@ def _retry_on_token_expiry(fn):
     return wrapper
 
 
+# ─────────────────────────────────────────────────
+# app_key 단위 요청 throttle
+# ─────────────────────────────────────────────────
+# 한 계좌(app_key)에 대해 잔고/실현손익/해외잔고를 ms 단위로 연달아 호출하면
+# KIS 원장이 '초당 거래건수 초과'(EGW00201) 를 던진다. 동일 app_key 호출만
+# 직렬화하고 최소 간격을 강제해, 서로 다른 계좌는 병렬을 유지하면서 한 계좌 안에서의
+# 연속 호출만 분산시킨다.
+_KIS_MIN_INTERVAL = 0.3            # 같은 app_key 연속 호출 최소 간격 (초)
+_APPKEY_LAST = {}                  # app_key -> 마지막 호출 시각
+_APPKEY_LOCKS = {}                 # app_key -> 직렬화용 Lock
+_APPKEY_REGISTRY_LOCK = threading.Lock()
+
+
+def _throttle_appkey(app_key):
+    """동일 app_key 호출을 최소 간격(_KIS_MIN_INTERVAL)으로 직렬화한다."""
+    if not app_key:
+        return
+    with _APPKEY_REGISTRY_LOCK:
+        lock = _APPKEY_LOCKS.setdefault(app_key, threading.Lock())
+    with lock:
+        wait = _KIS_MIN_INTERVAL - (time.time() - _APPKEY_LAST.get(app_key, 0.0))
+        if wait > 0:
+            time.sleep(wait)
+        _APPKEY_LAST[app_key] = time.time()
+
+
+def _retry_on_rate_limit(fn, max_retries=4, base_delay=0.5):
+    """
+    KIS '초당 거래건수 초과'(EGW00201) 대응.
+
+    1) 호출 전 동일 app_key 에 최소 간격을 강제(_throttle_appkey)해 애초에 원장
+       한도를 넘기지 않도록 한다. (계좌당 잔고/실현손익/해외잔고 3연속 호출이 주원인)
+    2) 그래도 EGW00201 이 내려오면 지수 백오프 + 지터로 재시도한다.
+    EGW00201 이외의 예외는 그대로 전파한다.
+    """
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        acct_cfg = args[0] if args else None
+        app_key = acct_cfg.get("my_app", "") if isinstance(acct_cfg, dict) else ""
+        delay = base_delay
+        for attempt in range(max_retries + 1):
+            _throttle_appkey(app_key)
+            try:
+                return fn(*args, **kwargs)
+            except Exception as e:
+                if "EGW00201" not in str(e) or attempt == max_retries:
+                    raise
+                sleep_for = delay + random.uniform(0, delay)
+                print(f"[rate-limit] EGW00201 → {sleep_for:.2f}s 후 재시도 "
+                      f"({attempt + 1}/{max_retries})")
+                time.sleep(sleep_for)
+                delay *= 2
+    return wrapper
+
+
 def _is_token_expired_response(res):
     """
     KIS 응답(Response)에서 EGW00123(토큰 만료)인지 판별.
@@ -265,6 +322,7 @@ def _make_headers(token, app_key, app_secret, tr_id, agent=""):
     }
 
 
+@_retry_on_rate_limit
 @_retry_on_token_expiry
 def get_domestic_balance(acct_cfg, project_root, acct_config_name=""):
     """
@@ -361,6 +419,7 @@ def get_domestic_balance(acct_cfg, project_root, acct_config_name=""):
     return all_holdings, summary
 
 
+@_retry_on_rate_limit
 @_retry_on_token_expiry
 def get_domestic_today_realized_pl(acct_cfg, project_root, acct_config_name="", **_kwargs):
     """
@@ -443,6 +502,7 @@ def get_domestic_today_realized_pl(acct_cfg, project_root, acct_config_name="", 
     }
 
 
+@_retry_on_rate_limit
 @_retry_on_token_expiry
 def get_overseas_today_realized_pl(acct_cfg, project_root, acct_config_name="", **_kwargs):
     """
@@ -517,6 +577,7 @@ def get_overseas_today_realized_pl(acct_cfg, project_root, acct_config_name="", 
     }
 
 
+@_retry_on_rate_limit
 @_retry_on_token_expiry
 def get_overseas_balance(acct_cfg, project_root, acct_config_name=""):
     """
