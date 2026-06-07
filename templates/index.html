@@ -521,10 +521,11 @@
                             <span class="label">총자산</span>
                             <span class="value">{{ "{:,.0f}".format(s['총자산']) }}원</span>
                         </div>
-                        <div class="pf-row">
+                        {% set _cash_ratio = (s['현금'] / s['총자산'] * 100) if (s['현금'] is not none and s['총자산'] and s['총자산'] > 0) else none %}
+                        <div class="pf-row"{% if _cash_ratio is not none and _cash_ratio > 10 %} style="background: rgba(255,149,0,0.18); border-radius: 6px; padding: 2px 6px; margin: 0 -4px;"{% endif %}>
                             <span class="label">현금</span>
                             <span class="value">
-                                {% if s['현금'] is not none %}{{ "{:,.0f}".format(s['현금']) }}원{% else %}-{% endif %}
+                                {% if s['현금'] is not none %}{{ "{:,.0f}".format(s['현금']) }}원{% if _cash_ratio is not none %} <span style="font-weight: 500; opacity: 0.75;">({{ "%.1f"|format(_cash_ratio) }}%)</span>{% endif %}{% else %}-{% endif %}
                             </span>
                         </div>
                         {% if s.get('외화자산', 0) > 0 %}
