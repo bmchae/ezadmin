@@ -452,6 +452,14 @@
         {% if total %}
             <div class="owner-total-wrap">
                 <div class="owner-total">{{ "{:,.0f}".format(total) }}원</div>
+                {% set opk = owner_peak.get(owner) if owner_peak is defined else none %}
+                {% set oddr = owner_dd_rate.get(owner) if owner_dd_rate is defined else none %}
+                {% if opk is not none %}
+                <div class="owner-day-chg" style="color: #fff;">
+                    DD : {{ "{:,.0f}".format(opk) }}
+                    ({{ "+" if oddr > 0 else "" }}{{ "{:.1f}".format(oddr) }}%)
+                </div>
+                {% endif %}
                 {% set omc = owner_month_chg.get(owner) if owner_month_chg is defined else none %}
                 {% set omr = owner_month_chg_rate.get(owner) if owner_month_chg_rate is defined else none %}
                 {% if omc is not none %}

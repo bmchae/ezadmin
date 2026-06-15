@@ -817,6 +817,25 @@ def index(request: Request, sort: str = "portfolio"):
         owner_month_chg[owner] = chg
         owner_month_chg_rate[owner] = rate
 
+    # 오너별 DD(역대 최고 합산총자산 대비 현재 총자산 하락률).
+    # 현재값은 헤더에 표시되는 라이브 총자산(owner_totals)을 사용해 표시값과 일관성 유지.
+    # peak(역대 최고 합산총자산)는 '오늘 제외, 어제까지'의 DB 시계열 최고로 계산.
+    from datetime import datetime as _dt2, timezone as _tz2, timedelta as _td2
+    _kst_today = _dt2.now(_tz2(_td2(hours=9))).strftime("%Y-%m-%d")
+    owner_peak = {}       # 어제까지의 역대 최고 합산총자산
+    owner_dd_rate = {}    # 낙폭률
+    for owner in sorted_owners:
+        ch = owner_charts.get(owner)
+        prior_assets = [p.get("asset") for p in ((ch or {}).get("points") or [])
+                        if p.get("asset") is not None and p.get("date", "") < _kst_today]
+        cur = owner_totals.get(owner)
+        if not cur or not prior_assets:
+            continue
+        peak = max(prior_assets)
+        if peak > 0:
+            owner_peak[owner] = peak
+            owner_dd_rate[owner] = (cur - peak) / peak * 100
+
     return templates.TemplateResponse(
         request, "index.html",
         {
@@ -828,6 +847,8 @@ def index(request: Request, sort: str = "portfolio"):
             "owner_day_chg_rate": owner_day_chg_rate,
             "owner_month_chg": owner_month_chg,
             "owner_month_chg_rate": owner_month_chg_rate,
+            "owner_peak": owner_peak,
+            "owner_dd_rate": owner_dd_rate,
             "charts": charts,
             "owner_charts": owner_charts,
             "sort_mode": sort_mode,
