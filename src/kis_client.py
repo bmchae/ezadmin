@@ -260,14 +260,25 @@ def _throttle_appkey(app_key):
         _APPKEY_LAST[app_key] = time.time()
 
 
+# KIS 초당한도 관련 에러코드:
+#   EGW00201 = 초당 거래건수 초과 (원장)
+#   EGW00215 = 잔고/보유종목 조회 초당한도 초과
+_RATE_LIMIT_CODES = ("EGW00201", "EGW00215")
+
+
+def _is_rate_limited(exc):
+    s = str(exc)
+    return any(code in s for code in _RATE_LIMIT_CODES)
+
+
 def _retry_on_rate_limit(fn, max_retries=4, base_delay=0.5):
     """
-    KIS '초당 거래건수 초과'(EGW00201) 대응.
+    KIS 초당한도(EGW00201 거래건수 / EGW00215 조회한도) 대응.
 
     1) 호출 전 동일 app_key 에 최소 간격을 강제(_throttle_appkey)해 애초에 원장
        한도를 넘기지 않도록 한다. (계좌당 잔고/실현손익/해외잔고 3연속 호출이 주원인)
-    2) 그래도 EGW00201 이 내려오면 지수 백오프 + 지터로 재시도한다.
-    EGW00201 이외의 예외는 그대로 전파한다.
+    2) 그래도 초당한도 응답이 내려오면 지수 백오프 + 지터로 재시도한다.
+    초당한도 이외의 예외는 그대로 전파한다.
     """
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
@@ -279,10 +290,10 @@ def _retry_on_rate_limit(fn, max_retries=4, base_delay=0.5):
             try:
                 return fn(*args, **kwargs)
             except Exception as e:
-                if "EGW00201" not in str(e) or attempt == max_retries:
+                if not _is_rate_limited(e) or attempt == max_retries:
                     raise
                 sleep_for = delay + random.uniform(0, delay)
-                print(f"[rate-limit] EGW00201 → {sleep_for:.2f}s 후 재시도 "
+                print(f"[rate-limit] 초당한도 → {sleep_for:.2f}s 후 재시도 "
                       f"({attempt + 1}/{max_retries})")
                 time.sleep(sleep_for)
                 delay *= 2
