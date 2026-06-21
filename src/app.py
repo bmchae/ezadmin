@@ -474,7 +474,10 @@ def _fetch_list_summary(pf):
                     pf.get("account_config_name", ""))
                 # KR+US 혼합계좌: 원화총자산이 KR 자산까지 포함하므로 cash fallback 금지
                 foreign = _extract_foreign(fsummary, allow_cash_fallback=False)
-                f_krw_total = float(fsummary.get("원화총자산") or 0) if fsummary else 0.0
+                # '원화전용' summary(원화현금만 남은 해외계좌)는 KR 총자산 산정에서 제외.
+                # KR 계좌 자신의 원화현금이 tot_asst_amt 로 잡혀 이중계상되는 것을 방지.
+                if fsummary and not fsummary.get("원화전용"):
+                    f_krw_total = float(fsummary.get("원화총자산") or 0)
                 # KIS 원화총자산이 있으면 외화현금을 (원화총자산 - KR자산) / 환율 로 보정.
                 # 매도 미정산(T+2 결제 대기) USD 까지 포함되므로 증권사 앱과 일치한다.
                 if foreign and f_krw_total > 0 and foreign["환율"] > 0:

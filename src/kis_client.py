@@ -798,6 +798,33 @@ def get_overseas_balance(acct_cfg, project_root, acct_config_name=""):
                 "원화예수금": krw_cash,
             }
 
+    # 보유종목·외화가 전혀 없고 원화 예수금만 남은 해외계좌:
+    #   output3 의 원화 합계(tot_asst_amt = 국내+해외 합산 총자산, tot_dncl_amt = 원화예수금)
+    #   로 summary 를 채워 "국내자산 + 해외자산" 합산 총자산을 노출한다.
+    #   (예: bmchae-us — 미국주식 전량 매도 후 원화현금 1억만 남은 상태)
+    #   '원화전용' 마커를 달아, KR 계좌가 외화 보조조회로 이 함수를 호출할 때는
+    #   원화총자산을 무시하도록 하여 KR 총자산 산정에 영향을 주지 않는다.
+    if not summary and isinstance(output3, dict):
+        krw_tot_raw = float(output3.get("tot_asst_amt", 0) or 0)
+        if krw_tot_raw > 0:
+            krw_evlu = float(output3.get("evlu_amt_smtl_amt", 0) or 0)
+            krw_dncl = float(output3.get("tot_dncl_amt", 0) or 0)
+            summary = {
+                "총매수금액": 0,
+                "총평가금액": 0,
+                "총손익금액": 0,
+                "총수익률": 0,
+                "원화총매수금액": float(output3.get("pchs_amt_smtl_amt", 0) or 0),
+                "원화총평가금액": krw_evlu,
+                "원화총손익금액": 0,
+                "원화총수익률": 0,
+                "원화총자산": krw_tot_raw,
+                "환율": exrt,
+                "외화예수금": 0.0,
+                "원화예수금": krw_dncl or max(0.0, krw_tot_raw - krw_evlu),
+                "원화전용": True,
+            }
+
     return holdings, summary
 
 
