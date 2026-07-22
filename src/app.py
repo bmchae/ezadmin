@@ -918,6 +918,17 @@ def portfolio_detail(name: str, request: Request):
     universe = pf["portfolio_cfg"].get("universe") or {}
     total_evlu = sum(h["평가금액"] for h in holdings) if holdings else 0
 
+    # universe 에 cash 항목이 있으면 (ezgain 자산배분 등) 예수금을 비중 분모에 포함.
+    # 그래야 목표비중(현금 포함 정규화)과 실비중이 같은 기준으로 비교된다.
+    cash_amt = 0.0
+    _cash_info = universe.get("cash")
+    if isinstance(_cash_info, dict) and float(_cash_info.get("weight", 0) or 0) > 0:
+        if pf["market"] == "us":
+            cash_amt = float(summary.get("외화예수금") or 0)
+        else:
+            cash_amt = float(summary.get("D+2예수금") or 0)
+    weight_base = total_evlu + cash_amt
+
     # ezgain 은 yaml 의 weight 합이 100 이 아닐 수 있으므로 정규화하여 목표비중(%) 산출.
     # 그 외 프로젝트는 yaml weight 를 그대로 % 로 사용 (기존 동작).
     is_ezgain = pf.get("project") == "ezgain"
@@ -935,7 +946,7 @@ def portfolio_detail(name: str, request: Request):
             target_weight = round(raw_w / total_target_weight * 100, 2)
         else:
             target_weight = round(raw_w, 2)
-        actual_weight = round(h["평가금액"] / total_evlu * 100, 2) if total_evlu else 0
+        actual_weight = round(h["평가금액"] / weight_base * 100, 2) if weight_base else 0
         h["비중"] = actual_weight
         h["목표비중"] = target_weight
         h["비중차이"] = round(actual_weight - target_weight, 2)
@@ -970,6 +981,9 @@ def portfolio_detail(name: str, request: Request):
             if raw_w <= 0:
                 continue
             tgt = round(raw_w / total_target_weight * 100, 2) if total_target_weight > 0 else round(raw_w, 2)
+            # cash 항목은 미보유가 아니라 예수금 실비중을 반영
+            is_cash = code == "cash"
+            actual = round(cash_amt / weight_base * 100, 2) if is_cash and weight_base else 0
             holdings.append({
                 "종목코드": code,
                 "종목명": info.get("name", code),
@@ -977,18 +991,21 @@ def portfolio_detail(name: str, request: Request):
                 "매수평균가": 0,
                 "현재가": 0,
                 "매수금액": 0,
-                "평가금액": 0,
+                "평가금액": cash_amt if is_cash else 0,
                 "손익금액": 0,
                 "수익률": 0,
                 "당일손익금액": None,
                 "당일수익률": None,
                 "거래소코드": "",
-                "비중": 0,
+                "비중": actual,
                 "목표비중": tgt,
-                "비중차이": -tgt,
+                "비중차이": round(actual - tgt, 2),
                 "_in_universe": True,
-                "_overweight_alert": False,
+                "_overweight_alert": bool(
+                    is_cash and threshold_pct > 0 and abs(actual - tgt) >= threshold_pct
+                ),
                 "_phantom": True,
+                "_cash": is_cash,
             })
 
     broker = pf.get("broker", "kis")

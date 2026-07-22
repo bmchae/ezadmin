@@ -560,7 +560,9 @@
     <tbody>
     {% for h in holdings %}
         {% set _row_class = '' %}
-        {% if h.get('_phantom') %}
+        {% if h.get('_cash') %}
+            {% set _row_class = 'row-overweight' if h.get('_overweight_alert') else '' %}
+        {% elif h.get('_phantom') %}
             {% set _row_class = 'row-not-held' %}
         {% elif h.get('_in_universe') is false %}
             {% set _row_class = 'row-not-in-universe' %}
@@ -656,7 +658,9 @@
                 {{ "+" if diff > 0 else "" }}{{ "{:.2f}".format(diff) }}
             </td>
             <td class="text-center">
-                {% if h.get('_phantom') %}
+                {% if h.get('_cash') %}
+                    <span class="text-muted small">예수금</span>
+                {% elif h.get('_phantom') %}
                     <span class="text-muted small">미보유</span>
                 {% elif h['종목코드'] in pending_sell_codes %}
                     <span class="badge bg-warning text-dark">매도 주문 대기중</span>
