@@ -330,9 +330,11 @@ def _fetch_balance(pf):
     return fn(pf["account_cfg"], pf["project_root"], acct_name)
 
 
-def _rebal_alert(pf, holdings):
+def _rebal_alert(pf, holdings, cash_amt=0.0):
     """ezgain 자산배분/active 카테고리에서 비중차이 절대값이
-    yaml rebalancing.tolerance 의 70% 이상이면 True (리밸런싱 임박 알림)."""
+    yaml rebalancing.tolerance 의 70% 이상이면 True (리밸런싱 임박 알림).
+    universe 에 cash 항목이 있으면 예수금(cash_amt)을 실비중 분모에 포함해
+    상세 화면과 같은 기준으로 비교한다."""
     sub = _ezgain_subcat(pf)
     if sub not in ("자산배분", "active"):
         return False
@@ -346,9 +348,13 @@ def _rebal_alert(pf, holdings):
     threshold_pct = tol * 100 * 0.7
 
     universe = (pf.get("portfolio_cfg") or {}).get("universe") or {}
+    cash_info = universe.get("cash")
+    cash_weight = float(cash_info.get("weight", 0) or 0) if isinstance(cash_info, dict) else 0.0
+    if cash_weight <= 0:
+        cash_amt = 0.0
     universe_codes = {
         code for code, info in universe.items()
-        if isinstance(info, dict) and float(info.get("weight", 0) or 0) > 0
+        if code != "cash" and isinstance(info, dict) and float(info.get("weight", 0) or 0) > 0
     }
     total_target_weight = sum(
         float(v.get("weight", 0)) for v in universe.values()
@@ -365,14 +371,21 @@ def _rebal_alert(pf, holdings):
     if not holdings:
         return False
     total_evlu = sum(float(h.get("평가금액", 0) or 0) for h in holdings)
-    if total_evlu <= 0:
+    weight_base = total_evlu + cash_amt
+    if weight_base <= 0:
         return False
     for h in holdings:
         code = h.get("종목코드")
         info = universe.get(code, {}) if isinstance(universe.get(code), dict) else {}
         raw_w = float(info.get("weight", 0))
         tgt = raw_w / total_target_weight * 100 if total_target_weight > 0 else raw_w
-        actual = float(h.get("평가금액", 0) or 0) / total_evlu * 100
+        actual = float(h.get("평가금액", 0) or 0) / weight_base * 100
+        if abs(actual - tgt) >= threshold_pct:
+            return True
+    # cash 항목 자체의 편차 검사 (예수금 실비중 vs 목표비중)
+    if cash_weight > 0:
+        tgt = cash_weight / total_target_weight * 100 if total_target_weight > 0 else cash_weight
+        actual = cash_amt / weight_base * 100
         if abs(actual - tgt) >= threshold_pct:
             return True
     return False
@@ -512,6 +525,12 @@ def _fetch_list_summary(pf):
         else:
             total_assets = fallback_total
 
+        # rebal_alert 용 예수금: 상세 화면의 cash_amt 산출과 동일 기준
+        if pf["market"] == "us":
+            rebal_cash = float(foreign["외화현금"] or summary.get("외화예수금") or 0)
+        else:
+            rebal_cash = float(cash or 0)
+
         result = {
             "ok": True,
             "통화": "KRW",
@@ -523,7 +542,7 @@ def _fetch_list_summary(pf):
             "수익률": rt,
             "당일실현손익": today_rlz,
             **foreign,
-            "rebal_alert": _rebal_alert(pf, holdings),
+            "rebal_alert": _rebal_alert(pf, holdings, rebal_cash),
             "_holdings": holdings,    # 검색 기능용 (캐시에 함께 저장)
         }
 
